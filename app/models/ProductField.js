@@ -6,6 +6,7 @@ const productFieldSchema = new mongoose.Schema(
     productId: { type: String, required: true, index: true },
     productTitle: { type: String, required: true },
     handle: { type: String, default: "" },
+    
     title: { type: String, required: true },
     titleFont: { type: String, default: "" },
     content: { type: String, default: "" },
