@@ -1,0 +1,32 @@
+export const PLANS = {
+  FREE: "Free",
+  GROWTH: "Growth",
+};
+
+export const FREE_PLAN_LIMITS = {
+  maxProducts: 100,
+  maxFieldsPerProduct: 5,
+};
+
+export const PLAN_FEATURES = {
+  [PLANS.FREE]: [
+    "Up to 100 products with custom fields",
+    "Up to 5 fields per product",
+    "Accordion + Horizontal Tabs display",
+    "Rich text editor (22 fonts, bold/italic/colors)",
+    "Image embed & resize",
+    "Theme block customization",
+    "Live preview before saving",
+    "Email support via contact form",
+  ],
+  [PLANS.GROWTH]: [
+    "Unlimited products",
+    "Unlimited fields per product",
+    "Everything in Free",
+    "Bulk Apply — copy fields across products",
+    "CSV Import & Export",
+    "Custom CSS injection — style without theme editor",
+    "Analytics dashboard — field usage & growth insights",
+    "Priority support + onboarding call",
+  ],
+};

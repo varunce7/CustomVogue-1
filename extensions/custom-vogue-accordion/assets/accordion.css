@@ -1,0 +1,449 @@
+.cv-block-wrapper {
+  margin: 1.5rem 0;
+  box-sizing: border-box;
+  border-radius: 4px;
+}
+
+.cv-no-fields {
+  color: #9ca3af;
+  font-style: italic;
+  font-size: 0.9em;
+  padding: 0.5rem 0;
+}
+
+.cv-accordion-heading {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+/* ══════════════════════════════════
+   ACCORDION
+══════════════════════════════════ */
+
+span.cv-accordion-icon svg {
+  width: 16px;
+  display: block;
+}
+
+.cv-accordion-item {
+  border-top: 1px solid var(--cv-border-color, rgba(0, 0, 0, 0.12));
+}
+
+.cv-accordion-item:last-child {
+  border-bottom: 1px solid var(--cv-border-color, rgba(0, 0, 0, 0.12));
+}
+
+.cv-accordion-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--cv-accordion-spacing, 16px) 1rem;
+  background: var(--cv-title-bg, none);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--cv-title-color, inherit);
+  gap: 1rem;
+}
+
+.cv-accordion-trigger:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.cv-accordion-title {
+  flex: 1;
+  font-weight: 500;
+}
+
+/* Chevron icon */
+.cv-accordion-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.2s ease;
+}
+
+/* Chevron: flips 180° on open */
+.cv-accordion-trigger[aria-expanded="true"] .cv-icon-chevron {
+  transform: rotate(180deg);
+}
+
+/* Plus/minus: vertical line hides on open → shows − */
+.cv-plus-vertical {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+.cv-accordion-trigger[aria-expanded="true"] .cv-icon-plus .cv-plus-vertical {
+  transform: scaleY(0);
+  opacity: 0;
+}
+
+/* CSS grid trick for smooth height animation */
+.cv-accordion-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cv-accordion-panel[data-open] {
+  grid-template-rows: 1fr;
+}
+
+.cv-accordion-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ══════════════════════════════════
+   TABS
+══════════════════════════════════ */
+
+.cv-tabs-wrapper {
+  margin: 0.5rem 0;
+}
+
+.cv-tab-nav {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  gap: var(--cv-tab-gap, 20px);
+  border-bottom: 2px solid var(--cv-border-color, rgba(0, 0, 0, 0.1));
+  margin-bottom: 1rem;
+  cursor: grab;
+}
+
+.cv-tab-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.cv-tab-btn {
+  flex-shrink: 0;
+  padding: 1.25rem;
+  background: var(--cv-title-bg, none);
+  border: none;
+  /* border-bottom: 2px solid transparent;
+  margin-bottom: -2px; */
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--cv-title-color, inherit);
+  opacity: 0.65;
+  transition: opacity 0.2s ease, border-color 0.2s ease;
+}
+
+.cv-tab-btn:hover {
+  opacity: 0.9;
+}
+
+.cv-tab-btn.cv-tab-active {
+  opacity: 1;
+  border-bottom-color: currentColor;
+}
+
+.cv-tab-panel {
+  display: none;
+}
+
+.cv-tab-panel.cv-tab-panel-active {
+  display: block;
+}
+
+/* ══════════════════════════════════
+   SHARED CONTENT STYLES
+══════════════════════════════════ */
+
+.cv-accordion-content {
+  padding-bottom: 1.25rem;
+  line-height: 1.7;
+  padding-left: 1rem;
+}
+
+.cv-accordion-content img {
+  max-width: 100%;
+  height: auto;
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 0.5rem 0.75rem 0;
+  background-color: transparent !important;
+  padding: 0 !important;
+}
+
+
+.cv-accordion-content p {
+  margin: 0.5rem 0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.cv-accordion-content ul,
+.cv-accordion-content ol {
+  padding-left: 22px;
+  margin: 0.5rem 0;
+}
+
+.cv-accordion-content a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+/* Keep text and images on same line when together */
+.cv-accordion-content p img,
+.cv-accordion-content img+text {
+  display: inline-block;
+}
+
+.cv-accordion-content .ql-align-left {
+  text-align: left;
+}
+
+.cv-accordion-content .ql-align-center {
+  text-align: center;
+}
+
+.cv-accordion-content .ql-align-right {
+  text-align: right;
+}
+
+.cv-accordion-content .ql-align-justify {
+  text-align: justify;
+}
+
+.cv-accordion-content .ql-align-center img {
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 0.75rem;
+  display: block;
+}
+
+.cv-accordion-content .ql-align-right img {
+  margin-left: auto;
+  margin-right: 0;
+  margin-bottom: 0.75rem;
+  display: block;
+}
+
+.cv-accordion-content .ql-align-left img {
+  margin-left: 0;
+  margin-right: auto;
+  margin-bottom: 0.75rem;
+  display: block;
+}
+
+.cv-accordion-content li.ql-align-center,
+.cv-accordion-content li.ql-align-right,
+.cv-accordion-content li.ql-align-justify {
+  list-style-position: inside;
+  padding-left: 0;
+}
+
+.cv-accordion-content li.ql-align-left {
+  text-align: left;
+}
+
+.cv-accordion-content li.ql-align-center {
+  text-align: center;
+}
+
+.cv-accordion-content li.ql-align-right {
+  text-align: right;
+}
+
+.cv-accordion-content li.ql-align-justify {
+  text-align: justify;
+}
+
+/* ══════════════════════════════════
+   QUILL FONT FAMILIES (storefront)
+══════════════════════════════════ */
+
+.cv-accordion-content .ql-font-arial,
+.cv-accordion-title .ql-font-arial,
+.cv-accordion-title.ql-font-arial,
+.cv-tab-btn.ql-font-arial,
+.cv-accordion-content.ql-font-arial {
+  font-family: Arial, sans-serif;
+}
+
+.cv-accordion-content .ql-font-times-new-roman,
+.cv-accordion-title .ql-font-times-new-roman,
+.cv-accordion-title.ql-font-times-new-roman,
+.cv-tab-btn.ql-font-times-new-roman,
+.cv-accordion-content.ql-font-times-new-roman {
+  font-family: 'Times New Roman', Times, serif;
+}
+
+.cv-accordion-content .ql-font-georgia,
+.cv-accordion-title .ql-font-georgia,
+.cv-accordion-title.ql-font-georgia,
+.cv-tab-btn.ql-font-georgia,
+.cv-accordion-content.ql-font-georgia {
+  font-family: Georgia, serif;
+}
+
+.cv-accordion-content .ql-font-verdana,
+.cv-accordion-title .ql-font-verdana,
+.cv-accordion-title.ql-font-verdana,
+.cv-tab-btn.ql-font-verdana,
+.cv-accordion-content.ql-font-verdana {
+  font-family: Verdana, Geneva, sans-serif;
+}
+
+.cv-accordion-content .ql-font-helvetica,
+.cv-accordion-title .ql-font-helvetica,
+.cv-accordion-title.ql-font-helvetica,
+.cv-tab-btn.ql-font-helvetica,
+.cv-accordion-content.ql-font-helvetica {
+  font-family: Helvetica, Arial, sans-serif;
+}
+
+.cv-accordion-content .ql-font-courier-new,
+.cv-accordion-title .ql-font-courier-new,
+.cv-accordion-title.ql-font-courier-new,
+.cv-tab-btn.ql-font-courier-new,
+.cv-accordion-content.ql-font-courier-new {
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.cv-accordion-content .ql-font-trebuchet-ms,
+.cv-accordion-title .ql-font-trebuchet-ms,
+.cv-accordion-title.ql-font-trebuchet-ms,
+.cv-tab-btn.ql-font-trebuchet-ms,
+.cv-accordion-content.ql-font-trebuchet-ms {
+  font-family: 'Trebuchet MS', sans-serif;
+}
+
+.cv-accordion-content .ql-font-impact,
+.cv-accordion-title .ql-font-impact,
+.cv-accordion-title.ql-font-impact,
+.cv-tab-btn.ql-font-impact,
+.cv-accordion-content.ql-font-impact {
+  font-family: Impact, Haettenschweiler, sans-serif;
+}
+
+.cv-accordion-content .ql-font-comic-sans-ms,
+.cv-accordion-title .ql-font-comic-sans-ms,
+.cv-accordion-title.ql-font-comic-sans-ms,
+.cv-tab-btn.ql-font-comic-sans-ms,
+.cv-accordion-content.ql-font-comic-sans-ms {
+  font-family: 'Comic Sans MS', cursive;
+}
+
+.cv-accordion-content .ql-font-garamond,
+.cv-accordion-title .ql-font-garamond,
+.cv-accordion-title.ql-font-garamond,
+.cv-tab-btn.ql-font-garamond,
+.cv-accordion-content.ql-font-garamond {
+  font-family: Garamond, serif;
+}
+
+.cv-accordion-content .ql-font-tahoma,
+.cv-accordion-title .ql-font-tahoma,
+.cv-accordion-title.ql-font-tahoma,
+.cv-tab-btn.ql-font-tahoma,
+.cv-accordion-content.ql-font-tahoma {
+  font-family: Tahoma, Geneva, sans-serif;
+}
+
+.cv-accordion-content .ql-font-palatino,
+.cv-accordion-title .ql-font-palatino,
+.cv-accordion-title.ql-font-palatino,
+.cv-tab-btn.ql-font-palatino,
+.cv-accordion-content.ql-font-palatino {
+  font-family: 'Palatino Linotype', Palatino, serif;
+}
+
+.cv-accordion-content .ql-font-book-antiqua,
+.cv-accordion-title .ql-font-book-antiqua,
+.cv-accordion-title.ql-font-book-antiqua,
+.cv-tab-btn.ql-font-book-antiqua,
+.cv-accordion-content.ql-font-book-antiqua {
+  font-family: 'Book Antiqua', Palatino, serif;
+}
+
+.cv-accordion-content .ql-font-calibri,
+.cv-accordion-title .ql-font-calibri,
+.cv-accordion-title.ql-font-calibri,
+.cv-tab-btn.ql-font-calibri,
+.cv-accordion-content.ql-font-calibri {
+  font-family: Calibri, sans-serif;
+}
+
+.cv-accordion-content .ql-font-cambria,
+.cv-accordion-title .ql-font-cambria,
+.cv-accordion-title.ql-font-cambria,
+.cv-tab-btn.ql-font-cambria,
+.cv-accordion-content.ql-font-cambria {
+  font-family: Cambria, Georgia, serif;
+}
+
+.cv-accordion-content .ql-font-candara,
+.cv-accordion-title .ql-font-candara,
+.cv-accordion-title.ql-font-candara,
+.cv-tab-btn.ql-font-candara,
+.cv-accordion-content.ql-font-candara {
+  font-family: Candara, sans-serif;
+}
+
+.cv-accordion-content .ql-font-century-gothic,
+.cv-accordion-title .ql-font-century-gothic,
+.cv-accordion-title.ql-font-century-gothic,
+.cv-tab-btn.ql-font-century-gothic,
+.cv-accordion-content.ql-font-century-gothic {
+  font-family: 'Century Gothic', sans-serif;
+}
+
+.cv-accordion-content .ql-font-gill-sans,
+.cv-accordion-title .ql-font-gill-sans,
+.cv-accordion-title.ql-font-gill-sans,
+.cv-tab-btn.ql-font-gill-sans,
+.cv-accordion-content.ql-font-gill-sans {
+  font-family: 'Gill Sans', 'Gill Sans MT', sans-serif;
+}
+
+.cv-accordion-content .ql-font-lucida-sans,
+.cv-accordion-title .ql-font-lucida-sans,
+.cv-accordion-title.ql-font-lucida-sans,
+.cv-tab-btn.ql-font-lucida-sans,
+.cv-accordion-content.ql-font-lucida-sans {
+  font-family: 'Lucida Sans', 'Lucida Grande', sans-serif;
+}
+
+.cv-accordion-content .ql-font-optima,
+.cv-accordion-title .ql-font-optima,
+.cv-accordion-title.ql-font-optima,
+.cv-tab-btn.ql-font-optima,
+.cv-accordion-content.ql-font-optima {
+  font-family: Optima, Segoe, sans-serif;
+}
+
+.cv-accordion-content .ql-font-rockwell,
+.cv-accordion-title .ql-font-rockwell,
+.cv-accordion-title.ql-font-rockwell,
+.cv-tab-btn.ql-font-rockwell,
+.cv-accordion-content.ql-font-rockwell {
+  font-family: Rockwell, 'Courier Bold', serif;
+}
+
+.cv-accordion-content .ql-font-franklin-gothic-medium,
+.cv-accordion-title .ql-font-franklin-gothic-medium,
+.cv-accordion-title.ql-font-franklin-gothic-medium,
+.cv-tab-btn.ql-font-franklin-gothic-medium,
+.cv-accordion-content.ql-font-franklin-gothic-medium {
+  font-family: 'Franklin Gothic Medium', 'Arial Narrow', sans-serif;
+}
+
+.cv-accordion-wrapper {
+  display: grid;
+  /* gap: 8px; */
+}

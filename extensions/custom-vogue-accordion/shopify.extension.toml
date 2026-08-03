@@ -1,0 +1,7 @@
+api_version = "2026-07"
+
+[[extensions]]
+type = "theme"
+name = "CustomVogue Accordion"
+handle = "custom-vogue-accordion"
+uid = "bc2445a3-d0b6-ca7d-5f7d-e05c36853a21e7a7b817"

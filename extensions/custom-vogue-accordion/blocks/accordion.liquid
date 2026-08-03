@@ -1,0 +1,209 @@
+{% assign meta_val = product.metafields.custom_vogue.accordion_fields.value %}
+
+{% if meta_val.fields %}
+  {% assign all_fields = meta_val.fields %}
+  {% assign data_display_style = meta_val.displayStyle | default: 'accordion' %}
+{% else %}
+  {% assign all_fields = meta_val %}
+  {% assign data_display_style = 'accordion' %}
+{% endif %}
+
+{% comment %} Theme editor can override app setting {% endcomment %}
+{% assign override = block.settings.display_style_override %}
+{% if override == 'accordion' or override == 'tabs' %}
+  {% assign display_mode = override %}
+{% else %}
+  {% assign display_mode = data_display_style %}
+{% endif %}
+
+{% assign font_color = block.settings.font_color | default: '#000000' %}
+{% assign font_size = block.settings.font_size | default: 14 %}
+{% assign title_font_size = block.settings.title_font_size | default: 16 %}
+{% assign bg_color = block.settings.bg_color %}
+{% assign title_color = block.settings.title_color %}
+{% assign title_bg_color = block.settings.title_bg_color %}
+{% assign border_color = block.settings.border_color %}
+{% assign accordion_spacing = block.settings.accordion_spacing | default: 16 %}
+{% assign tab_gap = block.settings.tab_gap | default: 20 %}
+{% assign icon_style = block.settings.icon_style | default: 'chevron' %}
+
+{% comment %} Show all saved fields on the storefront regardless of plan {% endcomment %}
+{% assign cv_field_limit = 9999 %}
+{% if all_fields != blank and all_fields.size > 0 %}
+  <div
+    class="cv-block-wrapper"
+    style="color: {{ font_color }}; font-size: {{ font_size }}px;{% if bg_color != blank %} background-color: {{ bg_color }}; padding: 1rem;{% endif %}{% if title_color != blank %} --cv-title-color: {{ title_color }};{% endif %}{% if title_bg_color != blank %} --cv-title-bg: {{ title_bg_color }};{% endif %}{% if border_color != blank %} --cv-border-color: {{ border_color }};{% endif %} --cv-accordion-spacing: {{ accordion_spacing }}px; --cv-tab-gap: {{ tab_gap }}px;"
+    data-cv-shop="{{ shop.permanent_domain }}"
+    data-cv-product="{{ product.id }}"
+    data-cv-product-title="{{ product.title | escape }}"
+    {% if shop.metafields.custom_vogue.app_url.value != blank %}data-cv-track="{{ shop.metafields.custom_vogue.app_url.value }}/api/track"{% endif %}
+    {{ block.shopify_attributes }}
+  >
+    {% if block.settings.show_heading and block.settings.section_heading != blank %}
+      <h2 class="cv-accordion-heading">{{ block.settings.section_heading | escape }}</h2>
+    {% endif %}
+
+    {% if display_mode == 'tabs' %}
+      <div class="cv-tabs-wrapper" data-cv-tabs>
+        <div class="cv-tab-nav">
+          {% for field in all_fields limit: cv_field_limit %}
+            <button
+              class="cv-tab-btn{% if forloop.first %} cv-tab-active{% endif %}{% if field.titleFont != blank %} ql-font-{{ field.titleFont }}{% endif %}"
+              data-tab="{{ forloop.index0 }}"
+              data-field-id="{{ field.id }}"
+              data-field-title="{{ field.title | escape }}"
+              style="font-size: {{ title_font_size }}px;"
+            >
+              {{ field.title | escape }}
+            </button>
+          {% endfor %}
+        </div>
+
+        {% for field in all_fields limit: cv_field_limit %}
+          <div
+            class="cv-tab-panel{% if forloop.first %} cv-tab-panel-active{% endif %}"
+            data-panel="{{ forloop.index0 }}"
+          >
+            <div
+              class="cv-accordion-content{% if field.titleFont != blank %} ql-font-{{ field.titleFont }}{% endif %}"
+            >
+              {{ field.content }}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+    {% else %}
+      <div class="cv-accordion-wrapper" data-cv-accordion>
+        {% for field in all_fields limit: cv_field_limit %}
+          {% render 'accordion-item',
+            field: field,
+            index: forloop.index,
+            index0: forloop.index0,
+            block_id: block.id,
+            icon_style: icon_style,
+            font_size: font_size,
+            title_font_size: title_font_size
+          %}
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  {{ 'accordion.css' | asset_url | stylesheet_tag }}
+  <script src="{{ 'accordion.js' | asset_url }}" defer></script>
+
+  {% comment %} Custom CSS injected by merchant via the CustomVogue app {% endcomment %}
+  {% assign cv_custom_css = shop.metafields.custom_vogue.custom_css.value %}
+  {% if cv_custom_css != blank %}
+    <style>
+      {{ cv_custom_css }}
+    </style>
+  {% endif %}
+{% endif %}
+
+{% schema %}
+{
+  "name": "Custom Fields",
+  "target": "section",
+  "settings": [
+    {
+      "type": "select",
+      "id": "display_style_override",
+      "label": "Display Style Override",
+      "options": [
+        { "value": "auto", "label": "Use app setting" },
+        { "value": "accordion", "label": "Accordion" },
+        { "value": "tabs", "label": "Horizontal Tabs" }
+      ],
+      "default": "auto"
+    },
+    {
+      "type": "color",
+      "id": "font_color",
+      "label": "Font Color",
+      "default": "#000000"
+    },
+    {
+      "type": "range",
+      "id": "font_size",
+      "label": "Text Font Size",
+      "min": 10,
+      "max": 24,
+      "step": 1,
+      "default": 14
+    },
+    {
+      "type": "range",
+      "id": "title_font_size",
+      "label": "Accordion Title Font Size",
+      "min": 12,
+      "max": 28,
+      "step": 1,
+      "default": 16
+    },
+    {
+      "type": "color",
+      "id": "bg_color",
+      "label": "Background Color"
+    },
+    {
+      "type": "color",
+      "id": "title_color",
+      "label": "Title Font Color"
+    },
+    {
+      "type": "color",
+      "id": "title_bg_color",
+      "label": "Header Background Color"
+    },
+    {
+      "type": "color",
+      "id": "border_color",
+      "label": "Border / Divider Color"
+    },
+    {
+      "type": "select",
+      "id": "icon_style",
+      "label": "Accordion Icon Style",
+      "options": [
+        { "value": "chevron", "label": "Dropdown Arrow" },
+        { "value": "plus", "label": "Plus / Minus" }
+      ],
+      "default": "chevron"
+    },
+    {
+      "type": "range",
+      "id": "accordion_spacing",
+      "label": "Accordion Item Spacing",
+      "min": 4,
+      "max": 200,
+      "step": 2,
+      "default": 16,
+      "unit": "rem"
+    },
+    {
+      "type": "range",
+      "id": "tab_gap",
+      "label": "Tab Button Gap",
+      "min": 0,
+      "max": 200,
+      "step": 2,
+      "default": 16,
+      "unit": "rem"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_heading",
+      "label": "Show section heading",
+      "default": false
+    },
+    {
+      "type": "text",
+      "id": "section_heading",
+      "label": "Section heading",
+      "default": "Product Details"
+    }
+  ]
+}
+{% endschema %}
