@@ -826,7 +826,9 @@ const styles = {
   stickyZone: {
     position: "sticky",
     top: 0,
-    zIndex: 50,
+    // Above the editor's font dropdown (60), which is itself above the sticky
+    // action bar (50) — so a dropdown covers the bar but slides under the header.
+    zIndex: 70,
     background: "#fff",
     marginLeft: -32,
     marginRight: -32,
