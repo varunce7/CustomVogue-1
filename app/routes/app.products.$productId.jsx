@@ -246,6 +246,18 @@ function RichTextEditor({ value, onChange, onBlockFontChange, readOnly }) {
           line-height: 1.7;
         }
         .react-quill-editor .ql-font.ql-picker { width: 160px; }
+        /* Quill gives open pickers z-index 1, so they render behind the sticky
+           action bar (z-index 50) and get cut in half. Lift them above it. */
+        .react-quill-editor .ql-picker.ql-expanded .ql-picker-options {
+          z-index: 60;
+        }
+        /* The font list is ~25 items tall — longer than the viewport when only a
+           few fields exist, and the page has nothing to scroll. Cap it and let
+           the list scroll inside itself instead. */
+        .react-quill-editor .ql-picker.ql-font.ql-expanded .ql-picker-options {
+          max-height: 260px;
+          overflow-y: auto;
+        }
         .react-quill-editor .ql-picker.ql-font .ql-picker-label::before,
         .react-quill-editor .ql-picker.ql-font .ql-picker-item::before {
           content: 'Default';
@@ -962,8 +974,9 @@ const styles = {
     flexWrap: "wrap",
   },
   stickyActions: {
-    // Not pinned: the bar sits at the end of the form and scrolls away with it,
-    // rather than hovering over the last field and any open font dropdown.
+    position: "sticky",
+    bottom: 0,
+    zIndex: 50,
     width: "100%",
     background: "#fff",
     padding: "16px 0",
