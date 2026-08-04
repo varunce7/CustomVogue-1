@@ -41,6 +41,49 @@ export function invalidatePlanCache(shop) {
   planCache.delete(shop);
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Trial eligibility and, if a trial is running, how much of it is left.
+// Shopify does NOT stop a shop taking a second trial by cancelling and
+// re-subscribing, so eligibility is derived from the shop's own subscription
+// history: if this app ever created a subscription carrying trial days for
+// them, they've had their trial.
+export async function getTrialState(admin) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query trialState {
+        currentAppInstallation {
+          activeSubscriptions { id status trialDays createdAt }
+          allSubscriptions(first: 50) { nodes { id status trialDays createdAt } }
+        }
+      }`
+    );
+    const json = await response.json();
+    const installation = json.data?.currentAppInstallation;
+    if (!installation) throw new Error("no currentAppInstallation in response");
+
+    const all = installation.allSubscriptions?.nodes ?? [];
+    const hasUsedTrial = all.some((s) => (s.trialDays ?? 0) > 0);
+
+    // Trial days run from creation, so the trial ends at createdAt + trialDays.
+    const active = installation.activeSubscriptions?.[0] ?? null;
+    let trialDaysRemaining = 0;
+    if (active && (active.trialDays ?? 0) > 0) {
+      const endsAt = new Date(active.createdAt).getTime() + active.trialDays * DAY_MS;
+      trialDaysRemaining = Math.max(0, Math.ceil((endsAt - Date.now()) / DAY_MS));
+    }
+
+    return { hasUsedTrial, trialDaysRemaining, inTrial: trialDaysRemaining > 0 };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[CustomVogue] getTrialState failed:", msg);
+    // Can't read the history — offer the trial rather than block a legitimate
+    // upgrade. Worst case a shop gets a second trial after an API outage.
+    return { hasUsedTrial: false, trialDaysRemaining: 0, inTrial: false, unknown: true };
+  }
+}
+
 // Called when returning from Shopify's charge-approval screen. A ?charge_id in
 // the URL is not proof of payment on its own — anyone can type one — so ask the
 // billing API whether a subscription is genuinely active before granting Growth.

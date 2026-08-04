@@ -7,14 +7,18 @@ import {
   BILLING_IS_TEST,
   confirmActivePlan,
   getCurrentPlan,
+  getTrialState,
   invalidatePlanCache,
   setCachedPlan,
 } from "../utils/billing.server.js";
-import { PLANS, PLAN_FEATURES, PLAN_PRICING } from "../utils/plans.js";
+import { PLANS, PLAN_FEATURES, PLAN_PRICING, TRIAL_DAYS } from "../utils/plans.js";
 
 export const loader = async ({ request }) => {
   const { session, billing, admin } = await authenticate.admin(request);
   const url = new URL(request.url);
+
+  // Drives the trial copy on the Growth card and the "N days left" badge.
+  const trial = await getTrialState(admin);
 
   // ── Upgrade return ──────────────────────────────────────────────────────────
   // Shopify appends ?charge_id=... after the merchant approves the charge, but
@@ -26,6 +30,8 @@ export const loader = async ({ request }) => {
     syncShopPlan(admin, session.shop, plan, true).catch(() => { });
     return {
       plan,
+      trial,
+      trialDays: TRIAL_DAYS,
       isTest: BILLING_IS_TEST,
       upgradeNotConfirmed: plan === PLANS.FREE,
       pendingConfirmation: plan === PLANS.GROWTH && !confirmed,
@@ -39,7 +45,7 @@ export const loader = async ({ request }) => {
   if (url.searchParams.has("cancelled")) {
     const plan = await getCurrentPlan(billing, session.shop); // returns cached FREE
     syncShopPlan(admin, session.shop, plan, true).catch(() => { });
-    return { plan, isTest: BILLING_IS_TEST };
+    return { plan, trial, trialDays: TRIAL_DAYS, isTest: BILLING_IS_TEST };
   }
 
   // ── Normal page load ────────────────────────────────────────────────────────
@@ -48,7 +54,7 @@ export const loader = async ({ request }) => {
   // dev and wiping the cache here would reset the plan to Free on every navigation.
   const plan = await getCurrentPlan(billing, session.shop);
   syncShopPlan(admin, session.shop, plan, true).catch(() => { });
-  return { plan, isTest: BILLING_IS_TEST };
+  return { plan, trial, trialDays: TRIAL_DAYS, isTest: BILLING_IS_TEST };
 };
 
 export const action = async ({ request }) => {
@@ -73,6 +79,11 @@ export const action = async ({ request }) => {
     const returnUrl = `https://admin.shopify.com/store/${shopHandle}/apps/${appHandle}/app/billing`;
     const pricing = PLAN_PRICING[PLANS.GROWTH];
 
+    // One trial per shop — a merchant who cancels and re-subscribes pays from
+    // day one. Shopify does not enforce this, so it's checked here.
+    const { hasUsedTrial } = await getTrialState(admin);
+    const trialDays = hasUsedTrial ? 0 : TRIAL_DAYS;
+
     try {
       const response = await admin.graphql(
         `#graphql
@@ -80,16 +91,18 @@ export const action = async ({ request }) => {
           $name: String!
           $returnUrl: URL!
           $test: Boolean!
+          $trialDays: Int!
           $lineItems: [AppSubscriptionLineItemInput!]!
         ) {
           appSubscriptionCreate(
             name: $name
             returnUrl: $returnUrl
             test: $test
+            trialDays: $trialDays
             lineItems: $lineItems
           ) {
             confirmationUrl
-            appSubscription { id status }
+            appSubscription { id status trialDays }
             userErrors { field message }
           }
         }`,
@@ -98,6 +111,7 @@ export const action = async ({ request }) => {
             name: PLANS.GROWTH,
             returnUrl,
             test: BILLING_IS_TEST,
+            trialDays,
             lineItems: [
               {
                 plan: {
@@ -169,7 +183,7 @@ export const action = async ({ request }) => {
 const CHECK = "✓";
 
 export default function BillingPage() {
-  const { plan, isTest, upgradeNotConfirmed, pendingConfirmation } = useLoaderData();
+  const { plan, trial, trialDays, isTest, upgradeNotConfirmed, pendingConfirmation } = useLoaderData();
   const upgradeFetcher = useFetcher();
   const cancelFetcher = useFetcher();
   const navigate = useNavigate();
@@ -177,6 +191,9 @@ export default function BillingPage() {
   const returnTab = searchParams.get("tab") || "App Settings";
 
   const isGrowth = plan === PLANS.GROWTH;
+  const trialEligible = !isGrowth && !trial?.hasUsedTrial;
+  const inTrial = isGrowth && Boolean(trial?.inTrial);
+  const daysLeft = trial?.trialDaysRemaining ?? 0;
   const upgradeError = upgradeFetcher.data?.error;
   const confirmationUrl = upgradeFetcher.data?.confirmationUrl;
 
@@ -286,13 +303,25 @@ export default function BillingPage() {
           {!isGrowth && <div style={styles.popularBadge}>Most Popular</div>}
           <div style={styles.cardHeader}>
             <span style={styles.planName}>Growth</span>
-            {isGrowth && <span style={styles.currentBadge}>Current plan</span>}
+            {isGrowth && (
+              <span style={{ ...styles.currentBadge, ...(inTrial ? styles.trialBadge : {}) }}>
+                {inTrial
+                  ? `Trial — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
+                  : "Current plan"}
+              </span>
+            )}
           </div>
           <div style={styles.priceRow}>
-            <span style={styles.priceAmount}>$4.99</span>
+            <span style={styles.priceAmount}>${PLAN_PRICING[PLANS.GROWTH].amount}</span>
             <span style={styles.pricePer}>/month</span>
           </div>
-          <p style={styles.trialNote}>Cancel anytime</p>
+          <p style={{ ...styles.trialNote, ...(trialEligible || inTrial ? styles.trialNoteHighlight : {}) }}>
+            {trialEligible
+              ? `${trialDays}-day free trial, then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
+              : inTrial
+                ? `Free until your trial ends — then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
+                : "Cancel anytime"}
+          </p>
           <ul style={styles.featureList}>
             {PLAN_FEATURES[PLANS.GROWTH].map((f) => (
               <li key={f} style={styles.featureItem}>
@@ -311,7 +340,11 @@ export default function BillingPage() {
                 style={{ ...styles.planBtn, ...styles.upgradeBtn }}
                 disabled={isUpgrading}
               >
-                {isUpgrading ? "Processing…" : "Select monthly — $4.99/mo"}
+                {isUpgrading
+                  ? "Processing…"
+                  : trialEligible
+                    ? `Start ${trialDays}-day free trial`
+                    : `Select monthly — $${PLAN_PRICING[PLANS.GROWTH].amount}/mo`}
               </button>
             </upgradeFetcher.Form>
           )}
@@ -519,6 +552,14 @@ const styles = {
   pricePer: {
     fontSize: 14,
     color: "#6b7280",
+  },
+  trialBadge: {
+    background: "#dcfce7",
+    color: "#15803d",
+  },
+  trialNoteHighlight: {
+    color: "#15803d",
+    fontWeight: 600,
   },
   trialNote: {
     fontSize: 12,

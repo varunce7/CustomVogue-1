@@ -23,6 +23,10 @@ const shopify = shopifyApp({
   },
   billing: {
     Growth: {
+      // Kept in step with PLAN_PRICING / TRIAL_DAYS in utils/plans.js. The
+      // subscription itself is created by appSubscriptionCreate in
+      // routes/app.billing.jsx; this config is what billing.check() matches on.
+      trialDays: 7,
       lineItems: [
         {
           amount: 4.99,

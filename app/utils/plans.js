@@ -3,6 +3,9 @@ export const PLANS = {
   GROWTH: "Growth",
 };
 
+// Length of the free trial offered on Growth, in days. One trial per shop.
+export const TRIAL_DAYS = 7;
+
 // Single source of truth for what Growth costs. Must stay in step with the
 // `billing` block in shopify.server.js.
 export const PLAN_PRICING = {
