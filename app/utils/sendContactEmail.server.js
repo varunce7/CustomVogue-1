@@ -1,25 +1,38 @@
 import nodemailer from "nodemailer";
 
-const CONTACT_EMAIL = process.env.CONTACT_EMAIL || "nisarg.patel@xillentech.com";
+// Where contact submissions land. Needs no setup — any inbox can receive.
+const TO_EMAIL = "nisarg.patel@xillentech.com";
+
+// ─── Fill these two in ────────────────────────────────────────────────
+// The account used to SEND. Outlook.com cannot be used here — Microsoft
+// disabled basic auth for personal accounts, so SMTP AUTH fails with
+// 535 5.7.139. Gmail + an app password works and is the quickest to set up:
+// myaccount.google.com → Security → App passwords.
+const SMTP_USER = "sutharprerna01@gmail.com";
+const SMTP_PASSWORD = "lglc uueq yacq lwzr";
+
+const SMTP_HOST = "smtp.gmail.com";
+const SMTP_PORT = 587;
+// ──────────────────────────────────────────────────────────────────────
 
 export async function sendContactEmail({ name, email, subject, message, shop }) {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, "");
+  if (!SMTP_USER || !SMTP_PASSWORD) {
+    throw new Error(
+      "SMTP_USER / SMTP_PASSWORD are empty in sendContactEmail.server.js",
+    );
+  }
 
-  const transporter = user && pass
-    ? nodemailer.createTransport({
-      service: "gmail",
-      auth: { user, pass },
-    })
-    : nodemailer.createTransport({
-      sendmail: true,
-      newline: true,
-      path: process.env.SENDMAIL_PATH || "/usr/sbin/sendmail",
-    });
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: false, // upgrades to TLS via STARTTLS
+    auth: { user: SMTP_USER, pass: SMTP_PASSWORD.replace(/\s+/g, "") },
+  });
 
   await transporter.sendMail({
-    from: `"CustomVogue" <${process.env.EMAIL_FROM || "no-reply@customvogue.local"}>`,
-    to: CONTACT_EMAIL,
+    from: `"CustomVogue" <${SMTP_USER}>`,
+    to: TO_EMAIL,
+    replyTo: email, // replying goes to whoever filled in the form
     subject: `[CustomVogue] ${subject}`,
     text: `Name: ${name}\nEmail: ${email}\nSubject: ${subject}\nMessage:\n${message}\n\nShop: ${shop}`,
     html: `
@@ -54,5 +67,5 @@ export async function sendContactEmail({ name, email, subject, message, shop }) 
     `,
   });
 
-  console.log(`[sendContactEmail] ✅ Email sent to ${CONTACT_EMAIL} | subject: ${subject}`);
+  console.log(`[sendContactEmail] ✅ Email sent to ${email} | subject: ${subject}`);
 }

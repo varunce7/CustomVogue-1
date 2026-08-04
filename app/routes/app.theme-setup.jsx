@@ -117,16 +117,26 @@ export default function ThemeSetup() {
           </div>
         </div>
 
-        <div style={s.statusCard}>
+        <div style={{ ...s.statusCard, ...(setup.blockDetected ? s.statusCardOk : {}) }}>
           <div style={s.statusRow}>
-            <span style={{ ...s.statusDot, ...(setup.blockDetected ? s.statusDotOk : {}) }} />
+            {setup.blockDetected ? (
+              <span style={s.statusCheck}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" /><polyline points="16 9.5 10.75 15 8 12.25" />
+                </svg>
+              </span>
+            ) : (
+              <span style={s.statusDot} />
+            )}
             <div>
-              <div style={s.statusTitle}>
-                {setup.blockDetected ? "CustomVogue block detected!" : "CustomVogue block not detected yet"}
-              </div>
-              <div style={s.statusDesc}>
+              <div style={{ ...s.statusTitle, ...(setup.blockDetected ? s.statusTitleOk : {}) }}>
                 {setup.blockDetected
-                  ? "Your storefront is ready to show custom fields."
+                  ? "CustomVogue block detected in your theme"
+                  : "CustomVogue block not detected yet"}
+              </div>
+              <div style={{ ...s.statusDesc, ...(setup.blockDetected ? s.statusDescOk : {}) }}>
+                {setup.blockDetected
+                  ? "Your product page is ready to display custom fields."
                   : "Follow the steps above, then click Re-check once you've saved."}
               </div>
             </div>
@@ -217,14 +227,17 @@ const s = {
     flexWrap: "wrap", background: "#f9fafb", border: "1px solid #e5e7eb",
     borderRadius: 10, padding: "14px 16px",
   },
+  statusCardOk: { background: "#f0fdf4", border: "1px solid #86efac" },
   statusRow: { display: "flex", alignItems: "flex-start", gap: 10 },
   statusDot: {
     width: 16, height: 16, borderRadius: "50%", border: "2px solid #d1d5db",
     marginTop: 2, flexShrink: 0,
   },
-  statusDotOk: { background: "#22c55e", border: "2px solid #22c55e" },
+  statusCheck: { color: "#16a34a", display: "flex", flexShrink: 0, marginTop: 1 },
   statusTitle: { fontSize: 13, fontWeight: 600, color: "#111827" },
+  statusTitleOk: { color: "#166534", fontWeight: 700 },
   statusDesc: { fontSize: 12, color: "#6b7280", marginTop: 2 },
+  statusDescOk: { color: "#3f6212" },
   recheckBtn: {
     display: "inline-flex", alignItems: "center", gap: 6,
     background: "#fff", color: "#374151", border: "1px solid #d1d5db",

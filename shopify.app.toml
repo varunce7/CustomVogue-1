@@ -2,7 +2,7 @@
 
 client_id = "9adf469185b975354ca9383c6ee1baea"
 name = "CustomVogue"
-application_url = "https://example.com"
+application_url = "https://custom-vogue-1.vercel.app"
 embedded = true
 
 [build]
@@ -24,10 +24,10 @@ api_version = "2026-07"
 scopes = "read_products,write_products,read_themes"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://custom-vogue-1.vercel.app/api/auth" ]
 
 [app_proxy]
-url = "https://example.com"
+url = "https://custom-vogue-1.vercel.app"
 subpath = "custom-vogue"
 prefix = "apps"
 
