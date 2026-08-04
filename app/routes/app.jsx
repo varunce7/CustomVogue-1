@@ -43,7 +43,11 @@ export function ErrorBoundary() {
     (error.constructor?.name === "ErrorResponse" ||
       error.constructor?.name === "ErrorResponseImpl");
 
-  if (isShopifyBoundaryType && typeof error.data === "string") {
+  // Only hand off to Shopify's boundary when there is actually markup to render.
+  // A thrown Response with an empty body (e.g. the bare 401 the billing helper
+  // used to throw) renders as a dead-end "Handling response" page, so let those
+  // fall through to the reload path below instead.
+  if (isShopifyBoundaryType && typeof error.data === "string" && error.data.trim() !== "") {
     return boundary.error(error);
   }
 

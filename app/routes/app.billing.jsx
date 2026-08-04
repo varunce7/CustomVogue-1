@@ -1,29 +1,35 @@
+import { useEffect } from "react";
 import { redirect, useFetcher, useLoaderData, useNavigate, useSearchParams } from "react-router";
 import { useBusyTimeout } from "../hooks/useBusyTimeout";
 import { authenticate } from "../shopify.server";
 import { syncShopPlan } from "../utils/appUrl.server.js";
 import {
   BILLING_IS_TEST,
+  confirmActivePlan,
   getCurrentPlan,
   invalidatePlanCache,
   setCachedPlan,
 } from "../utils/billing.server.js";
-import { PLANS, PLAN_FEATURES } from "../utils/plans.js";
+import { PLANS, PLAN_FEATURES, PLAN_PRICING } from "../utils/plans.js";
 
 export const loader = async ({ request }) => {
   const { session, billing, admin } = await authenticate.admin(request);
   const url = new URL(request.url);
 
   // ── Upgrade return ──────────────────────────────────────────────────────────
-  // Shopify appends ?charge_id=... ONLY after the merchant explicitly approves.
-  // Trust it immediately and skip billing.check() entirely — the subscription
-  // may not yet be "active" in Shopify's system at the moment we redirect back,
-  // so calling billing.check() here can return false even though the user paid.
+  // Shopify appends ?charge_id=... after the merchant approves the charge, but
+  // the parameter alone proves nothing — confirm the subscription really is
+  // active before granting Growth.
   if (url.searchParams.has("charge_id")) {
     invalidatePlanCache(session.shop);
-    setCachedPlan(session.shop, PLANS.GROWTH);
-    syncShopPlan(admin, session.shop, PLANS.GROWTH, true).catch(() => { });
-    return { plan: PLANS.GROWTH };
+    const { plan, confirmed } = await confirmActivePlan(billing, session.shop);
+    syncShopPlan(admin, session.shop, plan, true).catch(() => { });
+    return {
+      plan,
+      isTest: BILLING_IS_TEST,
+      upgradeNotConfirmed: plan === PLANS.FREE,
+      pendingConfirmation: plan === PLANS.GROWTH && !confirmed,
+    };
   }
 
   // ── Cancel return ───────────────────────────────────────────────────────────
@@ -33,7 +39,7 @@ export const loader = async ({ request }) => {
   if (url.searchParams.has("cancelled")) {
     const plan = await getCurrentPlan(billing, session.shop); // returns cached FREE
     syncShopPlan(admin, session.shop, plan, true).catch(() => { });
-    return { plan };
+    return { plan, isTest: BILLING_IS_TEST };
   }
 
   // ── Normal page load ────────────────────────────────────────────────────────
@@ -42,7 +48,7 @@ export const loader = async ({ request }) => {
   // dev and wiping the cache here would reset the plan to Free on every navigation.
   const plan = await getCurrentPlan(billing, session.shop);
   syncShopPlan(admin, session.shop, plan, true).catch(() => { });
-  return { plan };
+  return { plan, isTest: BILLING_IS_TEST };
 };
 
 export const action = async ({ request }) => {
@@ -51,40 +57,84 @@ export const action = async ({ request }) => {
   const intent = formData.get("intent");
 
   if (intent === "upgrade") {
-    // Dev bypass: Shopify billing API returns 403 for unpublished apps.
-    // Simulate the "charge approved" redirect so the full upgrade flow can be tested locally.
+    // Deliberately NOT billing.request(). That helper creates the subscription
+    // and then throws a bare 401 carrying an App Bridge redirect header, which
+    // React Router hands straight to the ErrorBoundary — the merchant just sees
+    // a blank "Handling response" page and the redirect never happens.
+    // Creating the subscription directly gives us the confirmationUrl as plain
+    // data, which the client can navigate the top frame to.
+    const shopHandle = session.shop.replace(/\.myshopify\.com$/, "");
+    // The app's handle in admin URLs (admin.shopify.com/store/<shop>/apps/<handle>).
     // eslint-disable-next-line no-undef
-    if (process.env.NODE_ENV !== "production") {
-      invalidatePlanCache(session.shop);
-      setCachedPlan(session.shop, PLANS.GROWTH);
-      syncShopPlan(admin, session.shop, PLANS.GROWTH, true).catch(() => { });
-      return redirect("/app/billing?charge_id=dev_test");
-    }
-
-    const url = new URL(request.url);
-    const returnUrl = `${url.origin}/app/billing`;
+    const appHandle = process.env.SHOPIFY_APP_HANDLE || "customvogue";
+    // Return into the app *inside* Shopify admin. Returning to the app's own
+    // origin drops the shop/host context and dumps the merchant on the login
+    // screen right after they have paid.
+    const returnUrl = `https://admin.shopify.com/store/${shopHandle}/apps/${appHandle}/app/billing`;
+    const pricing = PLAN_PRICING[PLANS.GROWTH];
 
     try {
-      // billing.request() creates the subscription then throws a Response:
-      //  • XHR requests  → 401 + X-Shopify-API-Request-Failure-Reauthorize-Url header
-      //    App Bridge intercepts that header and navigates window.top automatically.
-      //  • Non-XHR       → redirect to exit-iframe path or directly to confirmationUrl
-      await billing.request({
-        plan: PLANS.GROWTH,
-        isTest: BILLING_IS_TEST,
-        returnUrl,
-      });
-      // billing.request() always throws before reaching here.
-      return null;
-    } catch (e) {
-      // Re-throw the Response so React Router / App Bridge can handle it.
-      if (e instanceof Response) throw e;
+      const response = await admin.graphql(
+        `#graphql
+        mutation createAppSubscription(
+          $name: String!
+          $returnUrl: URL!
+          $test: Boolean!
+          $lineItems: [AppSubscriptionLineItemInput!]!
+        ) {
+          appSubscriptionCreate(
+            name: $name
+            returnUrl: $returnUrl
+            test: $test
+            lineItems: $lineItems
+          ) {
+            confirmationUrl
+            appSubscription { id status }
+            userErrors { field message }
+          }
+        }`,
+        {
+          variables: {
+            name: PLANS.GROWTH,
+            returnUrl,
+            test: BILLING_IS_TEST,
+            lineItems: [
+              {
+                plan: {
+                  appRecurringPricingDetails: {
+                    price: { amount: pricing.amount, currencyCode: pricing.currencyCode },
+                    interval: pricing.interval,
+                  },
+                },
+              },
+            ],
+          },
+        }
+      );
 
-      // Real error (subscription creation failed, BillingError, etc.)
-      const msg = e?.errorData?.[0]?.message
-        ?? (e instanceof Error ? e.message : null)
-        ?? "Billing request failed. Please reload and try again.";
-      console.error("[CustomVogue] billing.request error:", msg, e?.errorData ?? []);
+      const json = await response.json();
+      const result = json.data?.appSubscriptionCreate;
+      const userErrors = result?.userErrors ?? [];
+
+      if (userErrors.length > 0) {
+        const msg = userErrors.map((u) => u.message).join(" ");
+        console.error("[CustomVogue] appSubscriptionCreate userErrors:", JSON.stringify(userErrors));
+        return { error: msg };
+      }
+
+      if (!result?.confirmationUrl) {
+        console.error("[CustomVogue] appSubscriptionCreate returned no confirmationUrl:", JSON.stringify(json).slice(0, 500));
+        return { error: "Shopify did not return a confirmation URL. Please reload and try again." };
+      }
+
+      return { confirmationUrl: result.confirmationUrl };
+    } catch (e) {
+      let msg = e instanceof Error ? e.message : String(e);
+      // The usual setup failure: this store/app isn't allowed to create charges.
+      if (msg.includes("403")) {
+        msg = "Shopify rejected the billing request (403). The app must be installed on a development store, or approved for billing, before subscriptions can be created.";
+      }
+      console.error("[CustomVogue] appSubscriptionCreate error:", msg);
       return { error: msg };
     }
   }
@@ -119,7 +169,7 @@ export const action = async ({ request }) => {
 const CHECK = "✓";
 
 export default function BillingPage() {
-  const { plan } = useLoaderData();
+  const { plan, isTest, upgradeNotConfirmed, pendingConfirmation } = useLoaderData();
   const upgradeFetcher = useFetcher();
   const cancelFetcher = useFetcher();
   const navigate = useNavigate();
@@ -128,13 +178,26 @@ export default function BillingPage() {
 
   const isGrowth = plan === PLANS.GROWTH;
   const upgradeError = upgradeFetcher.data?.error;
+  const confirmationUrl = upgradeFetcher.data?.confirmationUrl;
+
+  // The charge approval page must replace the whole admin window, not load
+  // inside the app's iframe. App Bridge intercepts window.open(url, "_top");
+  // the assignment is a fallback for when it isn't listening.
+  useEffect(() => {
+    if (!confirmationUrl || typeof window === "undefined") return;
+    try {
+      window.open(confirmationUrl, "_top");
+    } catch {
+      window.top.location.href = confirmationUrl;
+    }
+  }, [confirmationUrl]);
   // "submitting" while the request is in-flight; "loading" while the action
   // response is being processed; App Bridge intercepts the 401+header and
   // navigates window.top before React Router even sets state back to "idle".
   // Safety net: on success App Bridge navigates window.top away before state
   // resets (harmless if this fires mid-navigation), but on a dropped/hung
   // request these buttons would otherwise stay disabled forever.
-  const isUpgrading = useBusyTimeout(upgradeFetcher.state !== "idle", 15000);
+  const isUpgrading = useBusyTimeout(upgradeFetcher.state !== "idle" || Boolean(confirmationUrl), 15000);
   const isCancelling = useBusyTimeout(cancelFetcher.state !== "idle", 15000);
 
   const handleBack = () => {
@@ -161,6 +224,24 @@ export default function BillingPage() {
 
       {upgradeError && (
         <div style={styles.errorBanner}>{upgradeError}</div>
+      )}
+
+      {upgradeNotConfirmed && (
+        <div style={styles.errorBanner}>
+          {"We couldn't confirm an active subscription for this store, so you're still on Free. If you just approved the charge, wait a moment and reload."}
+        </div>
+      )}
+
+      {pendingConfirmation && (
+        <div style={styles.noticeBanner}>
+          {"Growth is active. We couldn't reach Shopify to double-check the subscription just now, so it will be re-verified on your next visit."}
+        </div>
+      )}
+
+      {isTest && (
+        <div style={styles.noticeBanner}>
+          Test mode — Shopify will show a real approval screen, but no money is charged.
+        </div>
       )}
 
       {/* Plan cards */}
@@ -325,6 +406,16 @@ const styles = {
     borderRadius: 6,
     padding: "12px 16px",
     fontSize: 14,
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  noticeBanner: {
+    background: "#eff6ff",
+    color: "#1e40af",
+    border: "1px solid #bfdbfe",
+    borderRadius: 6,
+    padding: "10px 16px",
+    fontSize: 13,
     marginBottom: 20,
     textAlign: "center",
   },

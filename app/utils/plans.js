@@ -3,6 +3,16 @@ export const PLANS = {
   GROWTH: "Growth",
 };
 
+// Single source of truth for what Growth costs. Must stay in step with the
+// `billing` block in shopify.server.js.
+export const PLAN_PRICING = {
+  [PLANS.GROWTH]: {
+    amount: 4.99,
+    currencyCode: "USD",
+    interval: "EVERY_30_DAYS",
+  },
+};
+
 export const FREE_PLAN_LIMITS = {
   maxProducts: 100,
   maxFieldsPerProduct: 5,

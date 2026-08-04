@@ -41,6 +41,50 @@ export function invalidatePlanCache(shop) {
   planCache.delete(shop);
 }
 
+// Called when returning from Shopify's charge-approval screen. A ?charge_id in
+// the URL is not proof of payment on its own — anyone can type one — so ask the
+// billing API whether a subscription is genuinely active before granting Growth.
+// Shopify can take a moment to flip the subscription to ACTIVE after approval,
+// hence the short retry loop.
+export async function confirmActivePlan(billing, shop, { attempts = 3, delayMs = 700 } = {}) {
+  let checkFailed = false;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const { hasActivePayment } = await billing.check({
+        plans: [PLANS.GROWTH],
+        isTest: BILLING_IS_TEST,
+      });
+      if (hasActivePayment) {
+        setCachedPlan(shop, PLANS.GROWTH);
+        return { plan: PLANS.GROWTH, confirmed: true };
+      }
+    } catch (e) {
+      // The API itself errored (403/429/network) — that is not the same as
+      // "the merchant did not pay", so remember it and decide below.
+      checkFailed = true;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[CustomVogue] confirmActivePlan check failed:", msg);
+    }
+
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  if (checkFailed) {
+    // Never lock a merchant who just paid out of the plan because our own
+    // verification call was unavailable. Grant it, but on the short TTL so the
+    // next page load re-checks rather than trusting this for an hour.
+    planCache.set(shop, { plan: PLANS.GROWTH, at: Date.now(), ttl: CACHE_TTL });
+    return { plan: PLANS.GROWTH, confirmed: false };
+  }
+
+  // Checks succeeded and consistently reported no active subscription.
+  setCachedPlan(shop, PLANS.FREE);
+  return { plan: PLANS.FREE, confirmed: false };
+}
+
 // Cache-only read — never calls billing.check(). Use inside actions to avoid
 // triggering the SDK's invalidateAccessToken side-effect when billing returns 401.
 export function getCachedPlan(shop) {
