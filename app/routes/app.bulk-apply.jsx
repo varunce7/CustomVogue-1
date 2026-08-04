@@ -4,10 +4,14 @@ import { Link, useFetcher, useLoaderData } from "react-router";
 import { useBusyTimeout } from "../hooks/useBusyTimeout";
 import { authenticate } from "../shopify.server";
 import { getCachedPlan, getCurrentPlan } from "../utils/billing.server.js";
-import { writeAccordionMetafield } from "../utils/metafield.server.js";
+import { mapWithConcurrency, writeAccordionMetafieldsBatch } from "../utils/metafield.server.js";
 import { PLANS } from "../utils/plans.js";
 import { getProductFields, saveProductFields } from "../utils/productFields.server.js";
 import { getExistingProducts } from "../utils/products.server.js";
+
+// Parallel Mongo writes / lookups per request. High enough to hide round-trip
+// latency, low enough not to exhaust the connection pool.
+const DB_CONCURRENCY = 8;
 
 export const loader = async ({ request }) => {
   const { session, billing } = await authenticate.admin(request);
@@ -56,17 +60,20 @@ export const action = async ({ request }) => {
     return { error: "Source product has no custom fields to copy." };
   }
 
+  const targets = [];
+  for (let i = 0; i < targetIds.length; i++) {
+    if (targetIds[i] === sourceId) continue;
+    targets.push({ id: targetIds[i], title: targetTitles[i] || targetIds[i] });
+  }
+
   let copied = 0;
   try {
-    for (let i = 0; i < targetIds.length; i++) {
-      const targetId = targetIds[i];
-      const targetTitle = targetTitles[i] || targetId;
-      if (targetId === sourceId) continue;
-
+    // Database writes run in parallel instead of one product at a time.
+    const saved = await mapWithConcurrency(targets, DB_CONCURRENCY, async (target) => {
       const targetDocs = sourceFields.map((f, idx) => ({
         shop: session.shop,
-        productId: targetId,
-        productTitle: targetTitle,
+        productId: target.id,
+        productTitle: target.title,
         title: f.title,
         titleFont: f.titleFont ?? "",
         content: f.content ?? "",
@@ -74,10 +81,18 @@ export const action = async ({ request }) => {
         displayStyle: f.displayStyle,
       }));
 
-      await saveProductFields(targetId, session.shop, targetDocs);
-      await writeAccordionMetafield(admin, targetId, session.shop);
-      copied++;
-    }
+      // saveProductFields already returns the stored docs, so pass them straight
+      // through — the old code re-read them from Mongo inside the metafield write.
+      const docs = await saveProductFields(target.id, session.shop, targetDocs);
+      return { productId: target.id, docs };
+    });
+
+    // Counted before the sync so a sync failure still reports the products that
+    // were written, matching the old per-product loop's partial-success warning.
+    copied = saved.length;
+
+    // One batched sync for every product instead of a request each.
+    await writeAccordionMetafieldsBatch(admin, saved);
   } catch (e) {
     if (e instanceof Response) throw e;
     console.error("[CustomVogue] Bulk Apply error:", e instanceof Error ? e.message : e);

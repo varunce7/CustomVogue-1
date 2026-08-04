@@ -2,10 +2,14 @@ import { useRef, useState } from "react";
 import { Link, useFetcher, useLoaderData } from "react-router";
 import { useBusyTimeout } from "../hooks/useBusyTimeout";
 import { authenticate } from "../shopify.server";
-import { getCurrentPlan } from "../utils/billing.server.js";
+import { getCachedPlan, getCurrentPlan } from "../utils/billing.server.js";
 import { PLANS } from "../utils/plans.js";
 import { saveProductFields } from "../utils/productFields.server.js";
-import { writeAccordionMetafield } from "../utils/metafield.server.js";
+import { mapWithConcurrency, writeAccordionMetafieldsBatch } from "../utils/metafield.server.js";
+
+// Parallel Mongo writes / lookups per request. High enough to hide round-trip
+// latency, low enough not to exhaust the connection pool.
+const DB_CONCURRENCY = 8;
 
 export const loader = async ({ request }) => {
   const { session, billing } = await authenticate.admin(request);
@@ -15,7 +19,7 @@ export const loader = async ({ request }) => {
 
 export const action = async ({ request }) => {
   const { session, admin, billing } = await authenticate.admin(request);
-  const plan = await getCurrentPlan(billing, session.shop);
+  const plan = getCachedPlan(session.shop) ?? await getCurrentPlan(billing, session.shop);
 
   if (plan !== PLANS.GROWTH) {
     return { error: "CSV Import requires the Growth plan." };
@@ -93,24 +97,35 @@ export const action = async ({ request }) => {
     };
   }
 
-  let imported = 0;
-  let skipped = 0;
-  for (const [productId, { fields }] of byProduct) {
-    // Ensure productId is a Shopify GID — handles (e.g. "my-product") are invalid as ownerId.
-    let gid = productId;
-    if (!productId.startsWith("gid://shopify/Product/")) {
-      gid = await resolveProductGid(admin, productId);
-      if (!gid) {
-        skipped++;
-        continue;
-      }
+  // Resolve any handles to GIDs in parallel rather than one lookup at a time.
+  // Ensure productId is a Shopify GID — handles (e.g. "my-product") are invalid as ownerId.
+  const resolved = await mapWithConcurrency(
+    [...byProduct.entries()],
+    DB_CONCURRENCY,
+    async ([productId, { fields }]) => {
+      if (productId.startsWith("gid://shopify/Product/")) return { gid: productId, fields };
+
+      const gid = await resolveProductGid(admin, productId);
+      if (!gid) return null;
       // Update all field records to use the resolved GID.
-      fields.forEach(f => { f.productId = gid; });
-    }
-    await saveProductFields(gid, session.shop, fields);
-    await writeAccordionMetafield(admin, gid, session.shop);
-    imported++;
-  }
+      fields.forEach((f) => { f.productId = gid; });
+      return { gid, fields };
+    },
+  );
+
+  const found = resolved.filter(Boolean);
+  const skipped = resolved.length - found.length;
+
+  // Database writes in parallel; saveProductFields returns the stored docs, so
+  // the metafield write no longer re-reads them from Mongo.
+  const saved = await mapWithConcurrency(found, DB_CONCURRENCY, async ({ gid, fields }) => ({
+    productId: gid,
+    docs: await saveProductFields(gid, session.shop, fields),
+  }));
+
+  // One batched sync for every product instead of a request each.
+  await writeAccordionMetafieldsBatch(admin, saved);
+  const imported = saved.length;
 
   if (imported === 0 && skipped > 0) {
     return { error: `No products could be imported — ${skipped} product ID(s) in the CSV were not found in your Shopify store. Make sure the CSV was exported from this app.` };
