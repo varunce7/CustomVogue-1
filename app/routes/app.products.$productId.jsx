@@ -962,9 +962,8 @@ const styles = {
     flexWrap: "wrap",
   },
   stickyActions: {
-    position: "sticky",
-    bottom: 0,
-    zIndex: 50,
+    // Not pinned: the bar sits at the end of the form and scrolls away with it,
+    // rather than hovering over the last field and any open font dropdown.
     width: "100%",
     background: "#fff",
     padding: "16px 0",
