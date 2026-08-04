@@ -9,6 +9,48 @@ const CACHE_TTL_AFTER_UPGRADE = 60 * 60 * 1000; // 60 minutes (confirmed plan st
 // Use test billing in development, but switch to real subscriptions in production.
 export const BILLING_IS_TEST = process.env.NODE_ENV !== "production";
 
+// Development stores can never have a payment method on file, so Shopify greys
+// out "Approve" on a real recurring charge there — the merchant is stuck on the
+// approval screen. Charges on those stores must be created as test charges.
+// Cached because a store's plan doesn't change under us.
+const devStoreCache = new Map();
+
+export async function isDevelopmentStore(admin, shop) {
+  if (shop && devStoreCache.has(shop)) return devStoreCache.get(shop);
+
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query shopPlan {
+        shop { plan { partnerDevelopment } }
+      }`
+    );
+    const json = await response.json();
+    const isDev = Boolean(json.data?.shop?.plan?.partnerDevelopment);
+    if (shop) devStoreCache.set(shop, isDev);
+    return isDev;
+  } catch (e) {
+    console.error(
+      "[CustomVogue] isDevelopmentStore failed:",
+      e instanceof Error ? e.message : String(e),
+    );
+    return false;
+  }
+}
+
+// Whether the next charge should be created as a test charge.
+export async function shouldUseTestCharge(admin, shop) {
+  if (BILLING_IS_TEST) return true;
+  return isDevelopmentStore(admin, shop);
+}
+
+// What to pass as isTest when *reading* subscriptions. The API treats this as
+// `isTest || !subscription.test`, so `true` matches both test and real
+// subscriptions while `false` silently ignores test ones — which would show a
+// merchant Free right after they approved a test charge. Always be permissive
+// here; a merchant cannot create a test subscription themselves.
+const CHECK_INCLUDES_TEST = true;
+
 export async function getCurrentPlan(billing, shop, fallbackPlan = null) {
   if (shop) {
     const cached = planCache.get(shop);
@@ -20,7 +62,7 @@ export async function getCurrentPlan(billing, shop, fallbackPlan = null) {
   try {
     const { hasActivePayment } = await billing.check({
       plans: [PLANS.GROWTH],
-      isTest: BILLING_IS_TEST,
+      isTest: CHECK_INCLUDES_TEST,
     });
     const plan = hasActivePayment ? PLANS.GROWTH : PLANS.FREE;
     if (shop) planCache.set(shop, { plan, at: Date.now(), ttl: CACHE_TTL });
@@ -43,6 +85,11 @@ export function invalidatePlanCache(shop) {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Subscription statuses that mean the merchant approved the charge at some
+// point, so the trial attached to it was genuinely handed over.
+// (Statuses are PENDING, ACTIVE, DECLINED, EXPIRED, FROZEN, CANCELLED.)
+const TRIAL_CONSUMING_STATUSES = new Set(["ACTIVE", "FROZEN", "CANCELLED", "EXPIRED"]);
+
 // Trial eligibility and, if a trial is running, how much of it is left.
 // Shopify does NOT stop a shop taking a second trial by cancelling and
 // re-subscribing, so eligibility is derived from the shop's own subscription
@@ -64,7 +111,13 @@ export async function getTrialState(admin) {
     if (!installation) throw new Error("no currentAppInstallation in response");
 
     const all = installation.allSubscriptions?.nodes ?? [];
-    const hasUsedTrial = all.some((s) => (s.trialDays ?? 0) > 0);
+    // Only a subscription the merchant actually approved consumes the trial.
+    // PENDING means they opened the approval screen and never confirmed;
+    // DECLINED means they rejected it. Counting either would burn the trial of
+    // someone who never got a single day of it.
+    const hasUsedTrial = all.some(
+      (s) => (s.trialDays ?? 0) > 0 && TRIAL_CONSUMING_STATUSES.has(s.status),
+    );
 
     // Trial days run from creation, so the trial ends at createdAt + trialDays.
     const active = installation.activeSubscriptions?.[0] ?? null;
@@ -96,7 +149,7 @@ export async function confirmActivePlan(billing, shop, { attempts = 3, delayMs =
     try {
       const { hasActivePayment } = await billing.check({
         plans: [PLANS.GROWTH],
-        isTest: BILLING_IS_TEST,
+        isTest: CHECK_INCLUDES_TEST,
       });
       if (hasActivePayment) {
         setCachedPlan(shop, PLANS.GROWTH);

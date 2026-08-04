@@ -4,12 +4,12 @@ import { useBusyTimeout } from "../hooks/useBusyTimeout";
 import { authenticate } from "../shopify.server";
 import { syncShopPlan } from "../utils/appUrl.server.js";
 import {
-  BILLING_IS_TEST,
   confirmActivePlan,
   getCurrentPlan,
   getTrialState,
   invalidatePlanCache,
   setCachedPlan,
+  shouldUseTestCharge,
 } from "../utils/billing.server.js";
 import { PLANS, PLAN_FEATURES, PLAN_PRICING, TRIAL_DAYS } from "../utils/plans.js";
 
@@ -19,6 +19,8 @@ export const loader = async ({ request }) => {
 
   // Drives the trial copy on the Growth card and the "N days left" badge.
   const trial = await getTrialState(admin);
+  // True on development stores too, not just NODE_ENV=development.
+  const isTest = await shouldUseTestCharge(admin, session.shop);
 
   // ── Upgrade return ──────────────────────────────────────────────────────────
   // Shopify appends ?charge_id=... after the merchant approves the charge, but
@@ -32,7 +34,7 @@ export const loader = async ({ request }) => {
       plan,
       trial,
       trialDays: TRIAL_DAYS,
-      isTest: BILLING_IS_TEST,
+      isTest,
       upgradeNotConfirmed: plan === PLANS.FREE,
       pendingConfirmation: plan === PLANS.GROWTH && !confirmed,
     };
@@ -45,7 +47,7 @@ export const loader = async ({ request }) => {
   if (url.searchParams.has("cancelled")) {
     const plan = await getCurrentPlan(billing, session.shop); // returns cached FREE
     syncShopPlan(admin, session.shop, plan, true).catch(() => { });
-    return { plan, trial, trialDays: TRIAL_DAYS, isTest: BILLING_IS_TEST };
+    return { plan, trial, trialDays: TRIAL_DAYS, isTest };
   }
 
   // ── Normal page load ────────────────────────────────────────────────────────
@@ -54,7 +56,7 @@ export const loader = async ({ request }) => {
   // dev and wiping the cache here would reset the plan to Free on every navigation.
   const plan = await getCurrentPlan(billing, session.shop);
   syncShopPlan(admin, session.shop, plan, true).catch(() => { });
-  return { plan, trial, trialDays: TRIAL_DAYS, isTest: BILLING_IS_TEST };
+  return { plan, trial, trialDays: TRIAL_DAYS, isTest };
 };
 
 export const action = async ({ request }) => {
@@ -84,6 +86,10 @@ export const action = async ({ request }) => {
     const { hasUsedTrial } = await getTrialState(admin);
     const trialDays = hasUsedTrial ? 0 : TRIAL_DAYS;
 
+    // A real charge on a development store can't be approved — Shopify disables
+    // the Approve button because no payment method can exist there.
+    const isTest = await shouldUseTestCharge(admin, session.shop);
+
     try {
       const response = await admin.graphql(
         `#graphql
@@ -110,7 +116,7 @@ export const action = async ({ request }) => {
           variables: {
             name: PLANS.GROWTH,
             returnUrl,
-            test: BILLING_IS_TEST,
+            test: isTest,
             trialDays,
             lineItems: [
               {
@@ -157,12 +163,12 @@ export const action = async ({ request }) => {
     try {
       const { appSubscriptions } = await billing.check({
         plans: [PLANS.GROWTH],
-        isTest: BILLING_IS_TEST,
+        isTest: true, // match test subscriptions too, else dev stores can't cancel
       });
       if (appSubscriptions?.length > 0) {
         await billing.cancel({
           subscriptionId: appSubscriptions[0].id,
-          isTest: BILLING_IS_TEST,
+          isTest: true,
           prorate: true,
         });
       }
