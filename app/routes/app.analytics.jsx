@@ -312,7 +312,7 @@ export default function AnalyticsPage() {
         ) : (
           <div style={s.barList}>
             {topClicked.map((item, i) => (
-              <div key={item.fieldId} style={{ ...s.barRow, gridTemplateColumns: "130px 1fr 90px", gap: 16 }}>
+              <div key={item.fieldId} style={{ ...s.barRow, gridTemplateColumns: "130px 1fr 125px", gap: 16 }}>
                 <div style={s.barLeft}>
                   <div style={s.rankBadge}>{i + 1}</div>
                   <div style={s.barLabel} title={item.fieldTitle || item.fieldId}>{item.fieldTitle || item.fieldId}</div>
