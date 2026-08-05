@@ -398,7 +398,7 @@ export default function BulkApply() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
-            Will copy fields from <strong style={{ margin: "0 -2px" }}>{sourceProduct.title}</strong> to{" "}
+            Will copy fields from <strong style={{ margin: "0 -4px" }}>{sourceProduct.title}</strong> to{" "}
             <strong style={{ margin: "0 -4px" }}>{targetProducts.length} product{targetProducts.length !== 1 ? "s" : ""}</strong>.
           </div>
         )}
