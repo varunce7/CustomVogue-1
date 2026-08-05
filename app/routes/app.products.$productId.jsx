@@ -445,7 +445,15 @@ export const action = async ({ request, params }) => {
   try {
     await writeAccordionMetafield(admin, productId, session.shop, insertedDocs);
   } catch (err) {
+    // The Admin client throws a Response (not an Error) for API failures, and on
+    // a 401 that Response is the re-auth retry signal. Swallowing it left the
+    // metafield unwritten while still reporting a successful save, so the
+    // storefront kept showing the old fields. Rethrow it and let the request be
+    // retried with a fresh token — saveProductFields is idempotent, so replaying
+    // the submit is safe.
+    if (err instanceof Response) throw err;
     console.error("[CustomVogue] Metafield sync failed:", err instanceof Error ? err.message : String(err));
+    return { error: "Fields were saved, but the storefront could not be updated. Please save again." };
   }
 
   return { success: true };

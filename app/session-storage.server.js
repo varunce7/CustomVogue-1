@@ -1,6 +1,15 @@
 import { Session } from "@shopify/shopify-api";
-import SessionModel from "./models/Session.js";
 import connection from "./db.server.js";
+import SessionModel from "./models/Session.js";
+
+const TOKEN_EXCHANGE_GRANT_TYPE =
+  "urn:ietf:params:oauth:grant-type:token-exchange";
+const OFFLINE_ACCESS_TOKEN_TYPE =
+  "urn:shopify:params:oauth:token-type:offline-access-token";
+
+// Keyed by session id, so concurrent requests for the same shop only run one
+// exchange instead of racing each other with the same subject token.
+const pendingMigrations = new Map();
 
 export class MongoDBSessionStorage {
   constructor() {
@@ -18,6 +27,9 @@ export class MongoDBSessionStorage {
     await this.ready;
     const doc = await SessionModel.findById(id).lean();
     if (!doc) return undefined;
+    if (!doc.isOnline && doc.accessToken && !doc.refreshToken) {
+      return this.#migrateLegacyOfflineSession(doc);
+    }
     return this.#docToSession(doc);
   }
 
@@ -37,6 +49,66 @@ export class MongoDBSessionStorage {
     await this.ready;
     const docs = await SessionModel.find({ shop }).sort({ expires: -1 }).limit(25).lean();
     return docs.map((doc) => this.#docToSession(doc));
+  }
+
+  // Sessions stored before `future.expiringOfflineAccessTokens` was enabled hold
+  // a non-expiring offline token. Shopify has deprecated those and they never
+  // look expired, so the library would keep reusing them: exchange them once for
+  // an expiring token + refresh token pair.
+  #migrateLegacyOfflineSession(doc) {
+    const inFlight = pendingMigrations.get(doc._id);
+    if (inFlight) return inFlight;
+
+    const migration = (async () => {
+      try {
+        const response = await fetch(`https://${doc.shop}/admin/oauth/access_token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            client_id: process.env.SHOPIFY_API_KEY,
+            client_secret: process.env.SHOPIFY_API_SECRET,
+            grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
+            subject_token: doc.accessToken,
+            subject_token_type: OFFLINE_ACCESS_TOKEN_TYPE,
+            requested_token_type: OFFLINE_ACCESS_TOKEN_TYPE,
+            expiring: "1",
+          }),
+        });
+
+        if (!response.ok) {
+          console.error(
+            `[CustomVogue] offline token migration rejected for ${doc.shop}: ${response.status}`,
+          );
+          // The old token is unusable, so drop the session and let the next
+          // embedded request mint a fresh one through token exchange.
+          await this.deleteSession(doc._id);
+          return undefined;
+        }
+
+        const body = await response.json();
+        const now = Date.now();
+        const update = {
+          scope: body.scope ?? doc.scope ?? null,
+          accessToken: body.access_token,
+          expires: body.expires_in ? new Date(now + body.expires_in * 1000) : null,
+          refreshToken: body.refresh_token ?? null,
+          refreshTokenExpires: body.refresh_token_expires_in
+            ? new Date(now + body.refresh_token_expires_in * 1000)
+            : null,
+        };
+        await SessionModel.findByIdAndUpdate(doc._id, update, { new: true });
+        return this.#docToSession({ ...doc, ...update });
+      } catch (error) {
+        // Never let a migration problem surface as a 500: leave the row alone,
+        // return no session, and the request re-authenticates through token
+        // exchange like any other missing session.
+        console.error(`[CustomVogue] offline token migration failed for ${doc.shop}`, error);
+        return undefined;
+      }
+    })().finally(() => pendingMigrations.delete(doc._id));
+
+    pendingMigrations.set(doc._id, migration);
+    return migration;
   }
 
   #sessionToDoc(session) {
