@@ -249,7 +249,7 @@ function RichTextEditor({ value, onChange, onBlockFontChange, readOnly }) {
         /* Quill gives open pickers z-index 1, so they render behind the sticky
            action bar (z-index 50) and get cut in half. Lift them above it. */
         .react-quill-editor .ql-picker.ql-expanded .ql-picker-options {
-          z-index: 60;
+          z-index: 49;
         }
         /* The font list is ~25 items tall — longer than the viewport when only a
            few fields exist, and the page has nothing to scroll. Cap it and let
