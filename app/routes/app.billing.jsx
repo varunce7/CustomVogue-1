@@ -4,12 +4,13 @@ import { useBusyTimeout } from "../hooks/useBusyTimeout";
 import { authenticate } from "../shopify.server";
 import { syncShopPlan } from "../utils/appUrl.server.js";
 import {
+  BILLING_IS_TEST,
   confirmActivePlan,
   getCurrentPlan,
   getTrialState,
   invalidatePlanCache,
+  isDevelopmentStore,
   setCachedPlan,
-  shouldUseTestCharge,
 } from "../utils/billing.server.js";
 import { PLANS, PLAN_FEATURES, PLAN_PRICING, TRIAL_DAYS } from "../utils/plans.js";
 
@@ -19,8 +20,8 @@ export const loader = async ({ request }) => {
 
   // Drives the trial copy on the Growth card and the "N days left" badge.
   const trial = await getTrialState(admin);
-  // True on development stores too, not just NODE_ENV=development.
-  const isTest = await shouldUseTestCharge(admin, session.shop);
+  // Charges are real unless SHOPIFY_BILLING_TEST=true is set explicitly.
+  const isTest = BILLING_IS_TEST;
 
   // ── Upgrade return ──────────────────────────────────────────────────────────
   // Shopify appends ?charge_id=... after the merchant approves the charge, but
@@ -59,6 +60,28 @@ export const loader = async ({ request }) => {
   return { plan, trial, trialDays: TRIAL_DAYS, isTest };
 };
 
+// Turns Shopify's terse billing rejections into something a human can act on.
+// The one that bites hardest is "The shop cannot accept the provided charge":
+// Shopify refuses real charges on Partner development stores because no payment
+// method can exist there, and the raw message gives no hint that the store type
+// is the problem.
+async function explainChargeError(raw, admin, shop, isTest) {
+  const text = String(raw ?? "");
+
+  if (/cannot accept the provided charge/i.test(text)) {
+    if (!isTest && (await isDevelopmentStore(admin, shop))) {
+      return "This is a Shopify development store, and development stores can't be billed real money — Shopify rejects the charge before the approval screen. Install the app on a live store to take a real payment, or set SHOPIFY_BILLING_TEST=true in the environment to walk through the flow here with a test charge.";
+    }
+    return "Shopify won't accept a charge for this store right now. Check that the store has a valid payment method and an active Shopify plan, then try again.";
+  }
+
+  if (text.includes("403")) {
+    return "Shopify rejected the billing request (403). Confirm the app is approved for billing and that its access scopes are up to date, then reinstall and try again.";
+  }
+
+  return text;
+}
+
 export const action = async ({ request }) => {
   const { billing, admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
@@ -86,9 +109,8 @@ export const action = async ({ request }) => {
     const { hasUsedTrial } = await getTrialState(admin);
     const trialDays = hasUsedTrial ? 0 : TRIAL_DAYS;
 
-    // A real charge on a development store can't be approved — Shopify disables
-    // the Approve button because no payment method can exist there.
-    const isTest = await shouldUseTestCharge(admin, session.shop);
+    // Real money unless the operator has explicitly opted into test charges.
+    const isTest = BILLING_IS_TEST;
 
     try {
       const response = await admin.graphql(
@@ -137,9 +159,9 @@ export const action = async ({ request }) => {
       const userErrors = result?.userErrors ?? [];
 
       if (userErrors.length > 0) {
-        const msg = userErrors.map((u) => u.message).join(" ");
+        const raw = userErrors.map((u) => u.message).join(" ");
         console.error("[CustomVogue] appSubscriptionCreate userErrors:", JSON.stringify(userErrors));
-        return { error: msg };
+        return { error: await explainChargeError(raw, admin, session.shop, isTest) };
       }
 
       if (!result?.confirmationUrl) {
@@ -149,13 +171,9 @@ export const action = async ({ request }) => {
 
       return { confirmationUrl: result.confirmationUrl };
     } catch (e) {
-      let msg = e instanceof Error ? e.message : String(e);
-      // The usual setup failure: this store/app isn't allowed to create charges.
-      if (msg.includes("403")) {
-        msg = "Shopify rejected the billing request (403). The app must be installed on a development store, or approved for billing, before subscriptions can be created.";
-      }
-      console.error("[CustomVogue] appSubscriptionCreate error:", msg);
-      return { error: msg };
+      const raw = e instanceof Error ? e.message : String(e);
+      console.error("[CustomVogue] appSubscriptionCreate error:", raw);
+      return { error: await explainChargeError(raw, admin, session.shop, isTest) };
     }
   }
 
@@ -261,9 +279,14 @@ export default function BillingPage() {
         </div>
       )}
 
+      {/* Only ever shown when SHOPIFY_BILLING_TEST=true is set deliberately.
+          Styled as a warning, not a notice: seeing this on a live store means
+          real merchants are approving charges that will never be billed. */}
       {isTest && (
-        <div style={styles.noticeBanner}>
-          Test mode — Shopify will show a real approval screen, but no money is charged.
+        <div style={styles.warningBanner}>
+          <strong>Test charges are enabled</strong> (SHOPIFY_BILLING_TEST=true).
+          Shopify shows a real approval screen but no money is collected. Unset
+          this before going live.
         </div>
       )}
 
@@ -457,6 +480,17 @@ const styles = {
     fontSize: 13,
     marginBottom: 20,
     textAlign: "center",
+  },
+  warningBanner: {
+    background: "#fffbeb",
+    color: "#92400e",
+    border: "1px solid #fcd34d",
+    borderRadius: 6,
+    padding: "10px 16px",
+    fontSize: 13,
+    marginBottom: 20,
+    textAlign: "center",
+    lineHeight: 1.5,
   },
   confirmBanner: {
     background: "#d1fae5",
