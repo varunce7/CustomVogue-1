@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { redirect, useFetcher, useLoaderData, useRevalidator } from "react-router";
+import { useFetcher, useLoaderData, useRevalidator } from "react-router";
 import connection from "../db.server.js";
 import ShopOnboarding from "../models/ShopOnboarding.js";
 import { authenticate } from "../shopify.server";
+import { redirectWithShopParams } from "../utils/embeddedRedirect.server.js";
 import { checkThemeSetup, getAddBlockUrl, getMainTheme } from "../utils/theme.server.js";
 
 export const loader = async ({ request }) => {
@@ -39,12 +40,16 @@ export const action = async ({ request }) => {
     );
   } catch (e) {
     console.error("[CustomVogue] onboarding save error:", e instanceof Error ? e.message : e);
+    // Redirecting anyway would bounce straight back here (the dashboard sends
+    // shops with no record to onboarding), so report it instead of looping.
+    return { error: "Could not save your setup just now. Please try again." };
   }
 
-  return redirect("/app");
+  return redirectWithShopParams(request, "/app");
 };
 
 const TOTAL_STEPS = 2;
+const STEP_KEY = "cv_onboarding_step";
 
 function Brand() {
   return (
@@ -66,12 +71,32 @@ export default function Onboarding() {
   const { theme, setup, addBlockUrl, error } = useLoaderData();
   const revalidator = useRevalidator();
   const finishFetcher = useFetcher();
-  // 0 = welcome splash, 1 = intro, 2 = connect your theme
-  const [screen, setScreen] = useState(0);
+  // 0 = welcome splash, 1 = intro, 2 = connect your theme. Kept in
+  // sessionStorage so coming back from the theme editor — or any reload of the
+  // embedded frame — returns to the step being worked on rather than dropping
+  // the merchant back on the splash.
+  const [screen, setScreen] = useState(() => {
+    try {
+      const saved = Number(sessionStorage.getItem(STEP_KEY));
+      return saved >= 0 && saved <= 2 ? saved : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  const goTo = (next) => {
+    setScreen(next);
+    try { sessionStorage.setItem(STEP_KEY, String(next)); } catch { }
+  };
 
   const isChecking = revalidator.state !== "idle";
   const finishing = finishFetcher.state !== "idle";
-  const finish = () => finishFetcher.submit({}, { method: "post" });
+  const finishError = finishFetcher.data?.error;
+
+  const finish = () => {
+    try { sessionStorage.removeItem(STEP_KEY); } catch { }
+    finishFetcher.submit({}, { method: "post" });
+  };
 
   /* ══════════ WELCOME SPLASH ══════════ */
   if (screen === 0) {
@@ -114,7 +139,7 @@ export default function Onboarding() {
           <p style={s.welcomeDesc}>
             Have your product pages enriched and up and running in just a few minutes.
           </p>
-          <button type="button" onClick={() => setScreen(1)} style={s.darkBtn}>Next</button>
+          <button type="button" onClick={() => goTo(1)} style={s.darkBtn}>Next</button>
         </div>
       </div>
     );
@@ -138,6 +163,8 @@ export default function Onboarding() {
           ))}
         </div>
 
+        {finishError && <div style={s.errorBanner}>{finishError}</div>}
+
         {/* ── Step 1: intro ── */}
         {screen === 1 && (
           <div style={s.introGrid}>
@@ -148,7 +175,7 @@ export default function Onboarding() {
                 MetaVogue turns your product pages into structured, scannable, shopper-confident
                 experiences. Materials. Sizing. Care. Shipping. All from one app.
               </p>
-              <button type="button" onClick={() => setScreen(2)} style={s.darkBtn}>
+              <button type="button" onClick={() => goTo(2)} style={s.darkBtn}>
                 Let&apos;s set up your store →
               </button>
               <p style={s.introNote}>
@@ -230,7 +257,10 @@ export default function Onboarding() {
                   <div style={s.stepTitleRow}>
                     <span style={s.stepTitle}>Open your theme editor</span>
                     {addBlockUrl && (
-                      <a href={addBlockUrl} target="_top" rel="noreferrer noopener" style={s.openBtn}>
+                      // Opens in a new tab on purpose: the merchant saves the
+                      // block there and comes back to this step to Re-check,
+                      // instead of losing the flow to a top-level navigation.
+                      <a href={addBlockUrl} target="_blank" rel="noreferrer noopener" style={s.openBtn}>
                         Open Theme Editor
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
@@ -308,7 +338,7 @@ export default function Onboarding() {
             </div>
           ) : (
             <div>
-              <button type="button" onClick={() => setScreen(screen - 1)} style={s.backBtn}>← Back</button>
+              <button type="button" onClick={() => goTo(screen - 1)} style={s.backBtn}>← Back</button>
             </div>
           )}
           {screen === 2 && (

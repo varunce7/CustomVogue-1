@@ -8,6 +8,7 @@ import ShopOnboarding from "../models/ShopOnboarding.js";
 import { authenticate } from "../shopify.server";
 import { getShopAnalytics } from "../utils/analytics.server.js";
 import { getCurrentPlan } from "../utils/billing.server.js";
+import { redirectWithShopParams } from "../utils/embeddedRedirect.server.js";
 import { clearAccordionMetafield } from "../utils/metafield.server.js";
 import { FREE_PLAN_LIMITS, PLANS } from "../utils/plans.js";
 import { getExistingProducts } from "../utils/products.server.js";
@@ -17,12 +18,13 @@ export const loader = async ({ request }) => {
 
   // A shop that has never been through the welcome flow lands there first —
   // adding the theme block is what makes custom fields show on the storefront,
-  // so it has to come before products and fields. A DB hiccup must not lock
-  // anyone out of the dashboard, hence the swallowed error.
+  // so it has to come before products and fields. The install params have to
+  // travel with the redirect (see redirectWithShopParams), and a DB hiccup must
+  // not lock anyone out of the dashboard, hence the swallowed error.
   try {
     await connection;
     const onboarded = await ShopOnboarding.exists({ _id: session.shop });
-    if (!onboarded) return redirect("/app/onboarding");
+    if (!onboarded) return redirectWithShopParams(request, "/app/onboarding");
   } catch (e) {
     console.error("[CustomVogue] onboarding check error:", e instanceof Error ? e.message : e);
   }
