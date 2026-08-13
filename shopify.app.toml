@@ -1,7 +1,8 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "9adf469185b975354ca9383c6ee1baea"
-name = "CustomVogue"
+name = "MetaVogue"
+handle = "metavogue"
 application_url = "https://custom-vogue-1.vercel.app"
 embedded = true
 

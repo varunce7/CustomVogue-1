@@ -97,7 +97,7 @@ export const action = async ({ request }) => {
     const shopHandle = session.shop.replace(/\.myshopify\.com$/, "");
     // The app's handle in admin URLs (admin.shopify.com/store/<shop>/apps/<handle>).
     // eslint-disable-next-line no-undef
-    const appHandle = process.env.SHOPIFY_APP_HANDLE || "customvogue";
+    const appHandle = process.env.SHOPIFY_APP_HANDLE || "metavogue";
     // Return into the app *inside* Shopify admin. Returning to the app's own
     // origin drops the shop/host context and dumps the merchant on the login
     // screen right after they have paid.
