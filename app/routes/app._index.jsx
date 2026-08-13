@@ -4,6 +4,7 @@ import { Link, redirect, useFetcher, useLoaderData, useSearchParams } from "reac
 import { useBusyTimeout } from "../hooks/useBusyTimeout";
 import connection from "../db.server.js";
 import ProductField from "../models/ProductField.js";
+import ShopOnboarding from "../models/ShopOnboarding.js";
 import { authenticate } from "../shopify.server";
 import { getShopAnalytics } from "../utils/analytics.server.js";
 import { getCurrentPlan } from "../utils/billing.server.js";
@@ -13,6 +14,18 @@ import { getExistingProducts } from "../utils/products.server.js";
 
 export const loader = async ({ request }) => {
   const { session, billing } = await authenticate.admin(request);
+
+  // A shop that has never been through the welcome flow lands there first —
+  // adding the theme block is what makes custom fields show on the storefront,
+  // so it has to come before products and fields. A DB hiccup must not lock
+  // anyone out of the dashboard, hence the swallowed error.
+  try {
+    await connection;
+    const onboarded = await ShopOnboarding.exists({ _id: session.shop });
+    if (!onboarded) return redirect("/app/onboarding");
+  } catch (e) {
+    console.error("[CustomVogue] onboarding check error:", e instanceof Error ? e.message : e);
+  }
 
   let existingProducts = [];
   let plan = PLANS.FREE;
@@ -227,21 +240,6 @@ export default function Index() {
   const shopify = useAppBridge();
   const [pickerOpening, setPickerOpening] = useState(false);
 
-  // ── "Connect your theme" popup ──
-  // Shown over the homepage right after install, because custom fields never
-  // reach the storefront until the CustomVogue block is added to the theme.
-  // The check is loaded lazily from the theme-setup route's loader so the
-  // homepage isn't held up by its theme-file scan. Closing is only offered
-  // once the block is detected, and is remembered so it doesn't nag again.
-  const themeFetcher = useFetcher();
-  const [themePopupClosed, setThemePopupClosed] = useState(() => {
-    try {
-      return localStorage.getItem("cv_theme_popup_closed") === "1";
-    } catch {
-      return false;
-    }
-  });
-
   // Safety net: if any of these fetchers never settle back to "idle" (dropped
   // network, an action throwing a non-Response error), the buttons they
   // disable would otherwise stay stuck forever.
@@ -383,21 +381,6 @@ export default function Index() {
       : null);
 
   useEffect(() => {
-    if (themePopupClosed) return;
-    if (themeFetcher.state === "idle" && !themeFetcher.data) themeFetcher.load("/app/theme-setup");
-  }, [themePopupClosed, themeFetcher]);
-
-  const themeSetup = themeFetcher.data?.setup;
-  const themePopupOpen = !themePopupClosed && !!themeFetcher.data;
-  const themePopupClosable = !!themeSetup?.blockDetected;
-  const themeChecking = themeFetcher.state === "loading";
-
-  const closeThemePopup = () => {
-    try { localStorage.setItem("cv_theme_popup_closed", "1"); } catch { }
-    setThemePopupClosed(true);
-  };
-
-  useEffect(() => {
     if (!contactFetcher.data) return;
     if (contactFetcher.data.emailSent) {
       shopify.toast.show("Message sent! We'll get back to you soon.", { duration: 4000 });
@@ -408,135 +391,6 @@ export default function Index() {
 
   return (
     <>
-      {themePopupOpen && (
-        <div style={s.tpOverlay}>
-          <div style={s.tpBox}>
-            {themePopupClosable && (
-              <button type="button" onClick={closeThemePopup} aria-label="Close" title="Close" style={s.tpClose}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            )}
-
-            <div style={s.tpHeaderRow}>
-              <div style={s.tpHeaderIcon}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                </svg>
-              </div>
-              <div>
-                <div style={s.tpHeaderTitle}>CustomVogue</div>
-                <div style={s.tpHeaderSubtitle}>CONNECT YOUR THEME</div>
-              </div>
-            </div>
-
-            {themeFetcher.data.error ? (
-              <div style={s.tpErrorBanner}>{themeFetcher.data.error}</div>
-            ) : (
-              <div style={{ ...s.tpBadge, ...(themeSetup?.isOS2 ? s.tpBadgeOk : s.tpBadgeWarn) }}>
-                {themeSetup?.isOS2 ? (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                    Compatibility check passed
-                  </>
-                ) : (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-                    </svg>
-                    {themeFetcher.data.theme ? "Theme is not Online Store 2.0 — app blocks aren't supported" : "Could not detect your active theme"}
-                  </>
-                )}
-              </div>
-            )}
-
-            <h1 style={s.tpTitle}>Connect your theme</h1>
-            <p style={s.tpDesc}>
-              Add the CustomVogue block to your product page template so the custom fields you create actually show up for shoppers.
-            </p>
-
-            <div style={s.tpStepsCard}>
-              <div style={s.tpStepsHeader}>ADD THE BLOCK</div>
-
-              <div style={s.tpStep}>
-                <div style={s.tpStepNum}>1</div>
-                <div style={s.tpStepBody}>
-                  <div style={s.tpStepTitleRow}>
-                    <span style={s.tpStepTitle}>Open your theme editor</span>
-                    {themeFetcher.data.addBlockUrl && (
-                      <a href={themeFetcher.data.addBlockUrl} target="_top" rel="noreferrer noopener" style={s.tpOpenBtn}>
-                        Open Theme Editor
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
-                        </svg>
-                      </a>
-                    )}
-                  </div>
-                  <p style={s.tpStepDesc}>This link jumps straight to your Product template with the block ready to add.</p>
-                </div>
-              </div>
-
-              <div style={s.tpStep}>
-                <div style={s.tpStepNum}>2</div>
-                <div style={s.tpStepBody}>
-                  <span style={s.tpStepTitle}>Go to your Product page template</span>
-                  <p style={s.tpStepDesc}>Pick "Product" and select "Default product" from the page dropdown, if it isn't there already.</p>
-                </div>
-              </div>
-
-              <div style={s.tpStep}>
-                <div style={s.tpStepNum}>3</div>
-                <div style={s.tpStepBody}>
-                  <span style={s.tpStepTitle}>Add the CustomVogue block</span>
-                  <p style={s.tpStepDesc}>In the left-side section, click Product information → "Add block" → select the "Apps" tab → search "Custom Fields" → Save.</p>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ ...s.tpStatusCard, ...(themePopupClosable ? s.tpStatusCardOk : {}) }}>
-              <div style={s.tpStatusRow}>
-                {themePopupClosable ? (
-                  <span style={s.tpStatusCheck}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10" /><polyline points="16 9.5 10.75 15 8 12.25" />
-                    </svg>
-                  </span>
-                ) : (
-                  <span style={s.tpStatusDot} />
-                )}
-                <div>
-                  <div style={{ ...s.tpStatusTitle, ...(themePopupClosable ? s.tpStatusTitleOk : {}) }}>
-                    {themePopupClosable
-                      ? "CustomVogue block detected in your theme"
-                      : "CustomVogue block not detected yet"}
-                  </div>
-                  <div style={{ ...s.tpStatusDesc, ...(themePopupClosable ? s.tpStatusDescOk : {}) }}>
-                    {themePopupClosable
-                      ? "Your product page is ready to display custom fields. You can close this window."
-                      : "Follow the steps above, then click Re-check once you've saved."}
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => themeFetcher.load("/app/theme-setup")}
-                disabled={themeChecking}
-                style={{ ...s.tpRecheckBtn, ...(themeChecking ? { cursor: "not-allowed", opacity: 0.6 } : {}) }}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
-                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                </svg>
-                {themeChecking ? "Checking…" : "Re-check theme"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div style={s.page}>
         <style>{`
         @keyframes cv-spin { to { transform: rotate(360deg); } }
@@ -627,8 +481,6 @@ export default function Index() {
                 <p style={s.heroDesc}>
                   Select a product below to add rich accordion or tab fields to its storefront page.{" "}
                   <button onClick={() => setActiveTab("How to use")} style={s.heroLink}>How to use →</button>
-                  {" · "}
-                  <Link to={`/app/theme-setup?tab=${encodeURIComponent(activeTab)}`} style={s.heroLink}>Connect your theme →</Link>
                 </p>
               </div>
             </div>
@@ -1156,95 +1008,6 @@ const s = {
     maxWidth: "86%",
     margin: "0 auto",
     padding: "24px 32px 48px",
-  },
-
-  /* Connect-your-theme popup */
-  tpOverlay: {
-    position: "fixed", inset: 0, zIndex: 9999,
-    background: "rgba(0,0,0,0.5)",
-    display: "flex", alignItems: "flex-start", justifyContent: "center",
-    padding: "24px 16px", overflowY: "auto",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  },
-  tpBox: {
-    position: "relative",
-    background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
-    padding: "24px 28px", width: "100%", maxWidth: 640,
-    boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-  },
-  tpClose: {
-    position: "absolute", top: 14, right: 14,
-    width: 30, height: 30, borderRadius: 8,
-    display: "flex", alignItems: "center", justifyContent: "center",
-    background: "#fff", color: "#6b7280", border: "1px solid #e5e7eb",
-    cursor: "pointer", padding: 0,
-  },
-  tpHeaderRow: { display: "flex", alignItems: "center", gap: 12, marginBottom: 20 },
-  tpHeaderIcon: {
-    width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-    background: "linear-gradient(135deg, #1d4ed8, #2563eb)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-  },
-  tpHeaderTitle: { fontSize: 15, fontWeight: 700, color: "#111827" },
-  tpHeaderSubtitle: { fontSize: 11, fontWeight: 600, color: "#6b7280", letterSpacing: "0.05em" },
-  tpBadge: {
-    display: "inline-flex", alignItems: "center", gap: 8,
-    fontSize: 12, fontWeight: 700, letterSpacing: "0.03em",
-    padding: "6px 12px", borderRadius: 20, marginBottom: 16,
-  },
-  tpBadgeOk: { background: "#dcfce7", color: "#15803d" },
-  tpBadgeWarn: { background: "#fef3c7", color: "#b45309" },
-  tpErrorBanner: {
-    background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5",
-    borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: 16,
-  },
-  tpTitle: { fontSize: 24, fontWeight: 700, color: "#111827", margin: "0 0 8px" },
-  tpDesc: { fontSize: 14, color: "#6b7280", margin: "0 0 20px", lineHeight: 1.6 },
-  tpStepsCard: {
-    border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden", marginBottom: 16,
-  },
-  tpStepsHeader: {
-    fontSize: 11, fontWeight: 700, color: "#6b7280", letterSpacing: "0.05em",
-    background: "#f9fafb", padding: "10px 16px", borderBottom: "1px solid #e5e7eb",
-  },
-  tpStep: {
-    display: "flex", gap: 14, padding: "16px", borderBottom: "1px solid #f3f4f6",
-  },
-  tpStepNum: {
-    width: 24, height: 24, borderRadius: "50%", background: "#111827", color: "#fff",
-    fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center",
-    flexShrink: 0,
-  },
-  tpStepBody: { flex: 1 },
-  tpStepTitleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
-  tpStepTitle: { fontSize: 14, fontWeight: 600, color: "#111827" },
-  tpStepDesc: { fontSize: 13, color: "#6b7280", margin: "4px 0 0", lineHeight: 1.5 },
-  tpOpenBtn: {
-    display: "inline-flex", alignItems: "center", gap: 6,
-    background: "#111827", color: "#fff", textDecoration: "none",
-    fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 6, whiteSpace: "nowrap",
-  },
-  tpStatusCard: {
-    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
-    flexWrap: "wrap", background: "#f9fafb", border: "1px solid #e5e7eb",
-    borderRadius: 10, padding: "14px 16px",
-  },
-  tpStatusCardOk: { background: "#f0fdf4", border: "1px solid #86efac" },
-  tpStatusRow: { display: "flex", alignItems: "flex-start", gap: 10 },
-  tpStatusDot: {
-    width: 16, height: 16, borderRadius: "50%", border: "2px solid #d1d5db",
-    marginTop: 2, flexShrink: 0,
-  },
-  tpStatusCheck: { color: "#16a34a", display: "flex", flexShrink: 0, marginTop: 1 },
-  tpStatusTitle: { fontSize: 13, fontWeight: 600, color: "#111827" },
-  tpStatusTitleOk: { color: "#166534", fontWeight: 700 },
-  tpStatusDesc: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  tpStatusDescOk: { color: "#3f6212" },
-  tpRecheckBtn: {
-    display: "inline-flex", alignItems: "center", gap: 6,
-    background: "#fff", color: "#374151", border: "1px solid #d1d5db",
-    borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600,
-    cursor: "pointer", whiteSpace: "nowrap",
   },
 
   /* Plan bar */
