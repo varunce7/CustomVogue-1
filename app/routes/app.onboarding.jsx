@@ -54,11 +54,7 @@ const STEP_KEY = "cv_onboarding_step";
 function Brand() {
   return (
     <div style={s.brand}>
-      <div style={s.brandIcon}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-        </svg>
-      </div>
+      <img src="/logo.png" alt="MetaVogue" width="30" height="30" style={s.brandIcon} />
       <div>
         <div style={s.brandName}>MetaVogue</div>
         <div style={s.brandTag}>PRODUCT CUSTOM FIELDS</div>
@@ -375,11 +371,7 @@ const s = {
 
   /* Brand */
   brand: { display: "flex", alignItems: "center", gap: 10 },
-  brandIcon: {
-    width: 30, height: 30, borderRadius: 8, flexShrink: 0,
-    background: "linear-gradient(135deg, #1d4ed8, #2563eb)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-  },
+  brandIcon: { width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: "block" },
   brandName: { fontSize: 13, fontWeight: 700, color: "#111827", lineHeight: 1.2 },
   brandTag: { fontSize: 10, fontWeight: 600, color: "#6b7280", letterSpacing: "0.06em" },
 

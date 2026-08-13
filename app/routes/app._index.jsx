@@ -474,9 +474,7 @@ export default function Index() {
             {/* Hero banner */}
             <div style={s.hero}>
               <div style={s.heroIcon}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                </svg>
+                <img src="/logo.png" alt="MetaVogue" width="40" height="40" style={s.heroLogo} />
               </div>
               <div>
                 <h1 style={s.heroTitle}>Add Product Custom Fields</h1>
@@ -1110,6 +1108,7 @@ const s = {
     flexShrink: 0,
     border: "1px solid rgba(255,255,255,0.2)",
   },
+  heroLogo: { display: "block", borderRadius: 10 },
   heroTitle: { fontSize: 20, fontWeight: 700, color: "#fff", margin: "0 0 4px" },
   heroDesc: { fontSize: 14, color: "rgba(255,255,255,0.8)", margin: 0 },
   heroLink: {
