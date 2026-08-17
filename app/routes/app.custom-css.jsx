@@ -195,7 +195,7 @@ export default function CustomCssPage() {
 
 const s = {
   page: {
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     maxWidth: 820,
     margin: "0 auto",
     padding: "28px 24px 48px",

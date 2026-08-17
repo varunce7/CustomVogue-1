@@ -51,12 +51,35 @@ export const action = async ({ request }) => {
 const TOTAL_STEPS = 2;
 const STEP_KEY = "cv_onboarding_step";
 
+// The onboarding flow is the one place in the app that sits on the admin's grey
+// canvas instead of a white page, so the card reads as a floating sheet. Set on
+// html/body because the iframe body is white by default and the page <div> alone
+// would leave white bands around it. Both rules unmount with the route.
+// The hover lift/shadow lives here too — inline styles can't express :hover.
+const CSS = `
+  html, body { background: #f1f1f1; }
+  .cv-dark-btn {
+    transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .cv-dark-btn:hover {
+    background: #1f2937;
+    box-shadow: 0 6px 16px rgba(17,24,39,0.28);
+    transform: translateY(-1px);
+  }
+  .cv-dark-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(17,24,39,0.22);
+  }
+`;
+
 function Brand() {
   return (
     <div style={s.brand}>
-      <img src="/logo.png" alt="MetaVogue" width="30" height="30" style={s.brandIcon} />
+      <img src="/logo.png" alt="MetaVogue" width="32" height="32" style={s.brandIcon} />
       <div>
-        <div style={s.brandName}>MetaVogue</div>
+        <div style={{ ...s.brandName, textAlign: 'left' }}>
+          MetaVogue
+        </div>
         <div style={s.brandTag}>PRODUCT CUSTOM FIELDS</div>
       </div>
     </div>
@@ -98,44 +121,48 @@ export default function Onboarding() {
   if (screen === 0) {
     return (
       <div style={s.page}>
+        <style>{CSS}</style>
         <div style={{ ...s.card, ...s.welcomeCard }}>
           <div style={s.welcomeBrand}><Brand /></div>
 
-          <svg width="260" height="160" viewBox="0 0 260 160" style={s.art} role="img" aria-label="Product page with custom fields">
-            <circle cx="118" cy="74" r="56" fill="#eef2ff" />
-            <circle cx="52" cy="118" r="4" fill="#c7d2fe" />
-            <circle cx="196" cy="42" r="4" fill="#c7d2fe" />
-            <circle cx="70" cy="40" r="3" fill="#dbeafe" />
+          {/* The artwork is sized so its ink fills the whole box — the backdrop
+              circle sets the height, the two outer pills the width. Drawn on a
+              260×164 grid, scaled up to the reference's 275×173 footprint. */}
+          <svg width="277" height="175" viewBox="0 0 260 164" style={s.art} role="img" aria-label="Product page with custom fields">
+            <circle cx="130" cy="82" r="81" fill="#eef2ff" />
+            <circle cx="12" cy="124" r="4" fill="#c7d2fe" />
+            <circle cx="240" cy="78" r="4" fill="#c7d2fe" />
+            <circle cx="54" cy="22" r="3" fill="#dbeafe" />
 
-            <rect x="16" y="52" width="56" height="20" rx="10" fill="#fff" stroke="#c7d2fe" />
-            <rect x="26" y="60" width="36" height="4" rx="2" fill="#93c5fd" />
+            <rect x="1" y="33" width="70" height="26" rx="13" fill="#fff" stroke="#c7d2fe" />
+            <rect x="14" y="43" width="45" height="5" rx="2.5" fill="#93c5fd" />
 
-            <rect x="188" y="42" width="56" height="20" rx="10" fill="#fff" stroke="#c7d2fe" />
-            <rect x="198" y="50" width="36" height="4" rx="2" fill="#93c5fd" />
+            <rect x="188" y="23" width="70" height="26" rx="13" fill="#fff" stroke="#c7d2fe" />
+            <rect x="201" y="33" width="45" height="5" rx="2.5" fill="#93c5fd" />
 
-            <rect x="188" y="96" width="56" height="20" rx="10" fill="#fff" stroke="#c7d2fe" />
-            <rect x="198" y="104" width="36" height="4" rx="2" fill="#93c5fd" />
+            <rect x="189" y="110" width="70" height="26" rx="13" fill="#fff" stroke="#c7d2fe" />
+            <rect x="202" y="120" width="45" height="5" rx="2.5" fill="#93c5fd" />
 
-            <rect x="86" y="18" width="76" height="118" rx="10" fill="#fff" stroke="#2563eb" strokeWidth="1.5" />
-            <circle cx="112" cy="30" r="2" fill="#cbd5e1" />
-            <circle cx="120" cy="30" r="2" fill="#cbd5e1" />
-            <circle cx="128" cy="30" r="2" fill="#cbd5e1" />
-            <rect x="96" y="40" width="56" height="40" rx="6" fill="#eef2ff" />
-            <path d="M114 52h12l6 4-3 5-3-2v13h-12V59l-3 2-3-5z" fill="#93c5fd" />
-            <rect x="96" y="86" width="40" height="5" rx="2.5" fill="#2563eb" />
-            <rect x="96" y="96" width="56" height="4" rx="2" fill="#e2e8f0" />
-            <rect x="96" y="104" width="46" height="4" rx="2" fill="#e2e8f0" />
-            <circle cx="101" cy="120" r="5" fill="#dbeafe" />
-            <circle cx="113" cy="120" r="5" fill="#dbeafe" />
-            <circle cx="125" cy="120" r="5" fill="#dbeafe" />
-            <circle cx="137" cy="120" r="5" fill="#dbeafe" />
+            <rect x="79" y="3" width="100" height="154" rx="13" fill="#fff" stroke="#2563eb" strokeWidth="2" />
+            <circle cx="113" cy="19" r="2.5" fill="#cbd5e1" />
+            <circle cx="124" cy="19" r="2.5" fill="#cbd5e1" />
+            <circle cx="135" cy="19" r="2.5" fill="#cbd5e1" />
+            <rect x="92" y="32" width="74" height="52" rx="8" fill="#eef2ff" />
+            <path d="M116 47h16l7.5 5.5-4 6.5-3.5-2.5v17h-16v-17l-3.5 2.5-4-6.5z" fill="#93c5fd" />
+            <rect x="92" y="92" width="53" height="6" rx="3" fill="#2563eb" />
+            <rect x="92" y="105" width="74" height="5" rx="2.5" fill="#e2e8f0" />
+            <rect x="92" y="115" width="60" height="5" rx="2.5" fill="#e2e8f0" />
+            <circle cx="99" cy="136" r="6.5" fill="#dbeafe" />
+            <circle cx="115" cy="136" r="6.5" fill="#dbeafe" />
+            <circle cx="130" cy="136" r="6.5" fill="#dbeafe" />
+            <circle cx="146" cy="136" r="6.5" fill="#dbeafe" />
           </svg>
 
           <h1 style={s.welcomeTitle}>Welcome to MetaVogue</h1>
           <p style={s.welcomeDesc}>
             Have your product pages enriched and up and running in just a few minutes.
           </p>
-          <button type="button" onClick={() => goTo(1)} style={s.darkBtn}>Next</button>
+          <s-button variant="primary" type="button" onClick={() => goTo(1)} className="cv-dark-btn" style={s.darkBtn}>Next</s-button>
         </div>
       </div>
     );
@@ -144,12 +171,13 @@ export default function Onboarding() {
   /* ══════════ STEPS ══════════ */
   return (
     <div style={s.page}>
+      <style>{CSS}</style>
       <div style={s.card}>
         <div style={s.stepHeader}>
           <Brand />
           <div style={s.stepHeaderRight}>
             <span style={s.stepCount}>Step {screen} of {TOTAL_STEPS}</span>
-            <button type="button" onClick={finish} disabled={finishing} style={s.skipLink}>Skip setup</button>
+            <s-button type="button" onClick={finish} disabled={finishing} style={s.skipLink}>Skip setup</s-button>
           </div>
         </div>
 
@@ -171,9 +199,9 @@ export default function Onboarding() {
                 MetaVogue turns your product pages into structured, scannable, shopper-confident
                 experiences. Materials. Sizing. Care. Shipping. All from one app.
               </p>
-              <button type="button" onClick={() => goTo(2)} style={s.darkBtn}>
+              <s-button variant="primary" type="button" onClick={() => goTo(2)} className="cv-dark-btn" style={s.darkBtn}>
                 Let&apos;s set up your store →
-              </button>
+              </s-button>
               <p style={s.introNote}>
                 Setup takes 2 minutes. Nothing changes on your storefront until you&apos;re ready.
               </p>
@@ -256,12 +284,13 @@ export default function Onboarding() {
                       // Opens in a new tab on purpose: the merchant saves the
                       // block there and comes back to this step to Re-check,
                       // instead of losing the flow to a top-level navigation.
-                      <a href={addBlockUrl} target="_blank" rel="noreferrer noopener" style={s.openBtn}>
+                      <s-button><a href={addBlockUrl} target="_blank" rel="noreferrer noopener" style={{ color: "inherit", textDecoration: "none", display: "flex", alignItems: "center", gap: "4px", }}>
                         Open Theme Editor
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
                         </svg>
                       </a>
+                      </s-button>
                     )}
                   </div>
                   <p style={s.stepDesc}>This link jumps straight to your Product template with the block ready to add.</p>
@@ -309,7 +338,7 @@ export default function Onboarding() {
                   </div>
                 </div>
               </div>
-              <button
+              <s-button
                 type="button"
                 onClick={() => revalidator.revalidate()}
                 disabled={isChecking}
@@ -320,7 +349,7 @@ export default function Onboarding() {
                   <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                 </svg>
                 {isChecking ? "Checking…" : "Re-check theme"}
-              </button>
+              </s-button>
             </div>
           </div>
         )}
@@ -334,22 +363,22 @@ export default function Onboarding() {
             </div>
           ) : (
             <div>
-              <button type="button" onClick={() => goTo(screen - 1)} style={s.backBtn}>← Back</button>
+              <s-button type="button" onClick={() => goTo(screen - 1)} style={s.backBtn}>← Back</s-button>
             </div>
           )}
           {screen === 2 && (
             <div style={s.footerRight}>
-              <button type="button" onClick={finish} disabled={finishing} style={s.laterLink}>
+              <s-button type="button" onClick={finish} disabled={finishing} style={s.laterLink}>
                 I&apos;ll do this later
-              </button>
-              <button
+              </s-button>
+              <s-button
                 type="button"
                 onClick={finish}
                 disabled={!setup.blockDetected || finishing}
                 style={{ ...s.continueBtn, ...(!setup.blockDetected || finishing ? s.continueBtnOff : {}) }}
               >
                 {finishing ? "Finishing…" : "Continue →"}
-              </button>
+              </s-button>
             </div>
           )}
         </div>
@@ -358,29 +387,36 @@ export default function Onboarding() {
   );
 }
 
+// Inter is not bundled or loaded by the app, so naming it alone silently falls
+// back to a different face than the rest of the page — always keep the page
+// stack behind it so the type stays consistent either way.
+const FONT = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+
 const s = {
   page: {
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontFamily: FONT,
     padding: "24px 24px 48px",
   },
+  // No border on purpose: on the grey canvas the sheet is defined by the wide,
+  // soft shadow alone.
   card: {
-    background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14,
-    padding: "24px 32px 28px", maxWidth: 940, margin: "0 auto",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+    background: "#fff", borderRadius: 14,
+    padding: "24px 32px 28px", maxWidth: "92%", margin: "0 auto",
+    boxShadow: "0 2px 18px rgba(0,0,0,0.08)",
   },
 
   /* Brand */
   brand: { display: "flex", alignItems: "center", gap: 10 },
-  brandIcon: { width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: "block" },
+  brandIcon: { width: 32, height: 32, borderRadius: 8, flexShrink: 0, display: "block" },
   brandName: { fontSize: 13, fontWeight: 700, color: "#111827", lineHeight: 1.2 },
-  brandTag: { fontSize: 10, fontWeight: 600, color: "#6b7280", letterSpacing: "0.06em" },
+  brandTag: { fontFamily: FONT, fontSize: 11, fontWeight: 400, color: "#6b7280", letterSpacing: "0.01em" },
 
   /* Welcome splash */
-  welcomeCard: { maxWidth: 620, textAlign: "center", padding: "36px 32px 40px" },
-  welcomeBrand: { display: "flex", justifyContent: "center", marginBottom: 24 },
-  art: { display: "block", margin: "0 auto 20px" },
-  welcomeTitle: { fontSize: 26, fontWeight: 800, color: "#111827", margin: "0 0 8px" },
-  welcomeDesc: { fontSize: 14, color: "#6b7280", margin: "0 0 20px", lineHeight: 1.6 },
+  welcomeCard: { maxWidth: 717, textAlign: "center", padding: "40px 32px 40px" },
+  welcomeBrand: { display: "flex", justifyContent: "center", marginBottom: 34 },
+  art: { display: "block", margin: "0 auto 26px" },
+  welcomeTitle: { fontSize: 26, fontFamily: FONT, fontWeight: 600, color: "#111827", margin: "0 0 8px" },
+  welcomeDesc: { fontSize: 14, fontFamily: FONT, color: "#6b7280", margin: "0 0 16px", lineHeight: 1.3 },
 
   /* Step chrome */
   stepHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" },
@@ -396,11 +432,11 @@ const s = {
 
   /* Step 1 — intro */
   introGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 40, alignItems: "start" },
-  eyebrow: { fontSize: 11, fontWeight: 700, color: "#2563eb", letterSpacing: "0.08em", marginBottom: 10 },
-  eyebrowMuted: { fontSize: 11, fontWeight: 700, color: "#6b7280", letterSpacing: "0.08em", marginBottom: 10 },
-  introTitle: { fontSize: 28, fontWeight: 800, color: "#111827", margin: "0 0 12px", lineHeight: 1.25 },
-  introDesc: { fontSize: 14, color: "#4b5563", margin: "0 0 20px", lineHeight: 1.7 },
-  introNote: { fontSize: 12, color: "#9ca3af", margin: "14px 0 0", lineHeight: 1.5 },
+  eyebrow: { fontSize: 11, fontWeight: 700, color: "#2563eb", letterSpacing: "0.01em", marginBottom: 10 },
+  eyebrowMuted: { fontSize: 11, fontWeight: 700, color: "#6b7280", letterSpacing: "0.01em", marginBottom: 10 },
+  introTitle: { fontSize: 28, fontWeight: 700, color: "#111827", margin: "0 0 12px", lineHeight: 1.25 },
+  introDesc: { fontSize: 14, color: "#4b5563", margin: "0 0 20px", lineHeight: 1.3 },
+  introNote: { fontSize: 12, color: "#9ca3af", margin: "14px 0 0", lineHeight: 1.3 },
 
   compareRow: { display: "grid", gridTemplateColumns: "1fr 1.25fr", gap: 14, alignItems: "start" },
   previewCard: {
@@ -438,7 +474,7 @@ const s = {
     background: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5",
     borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: 16,
   },
-  title: { fontSize: 26, fontWeight: 800, color: "#111827", margin: "0 0 8px" },
+  title: { fontSize: 26, fontFamily: FONT, fontWeight: 700, color: "#111827", margin: "0 0 8px" },
   desc: { fontSize: 14, color: "#6b7280", margin: "0 0 20px", lineHeight: 1.6 },
   stepsCard: { border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden", marginBottom: 16 },
   stepsHeader: {
@@ -458,7 +494,7 @@ const s = {
   openBtn: {
     display: "inline-flex", alignItems: "center", gap: 6,
     background: "#111827", color: "#fff", textDecoration: "none",
-    fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 6, whiteSpace: "nowrap",
+    fontSize: 12, fontFamily: FONT, fontWeight: 600, padding: "5px 12px", borderRadius: 6, whiteSpace: "nowrap",
   },
   statusCard: {
     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
@@ -479,7 +515,7 @@ const s = {
   recheckBtn: {
     display: "inline-flex", alignItems: "center", gap: 6,
     background: "#fff", color: "#374151", border: "1px solid #d1d5db",
-    borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600,
+    borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600,
     cursor: "pointer", whiteSpace: "nowrap",
   },
 
@@ -487,7 +523,7 @@ const s = {
   darkBtn: {
     display: "inline-flex", alignItems: "center", justifyContent: "center",
     background: "#111827", color: "#fff", border: "none", borderRadius: 8,
-    padding: "10px 20px", fontSize: 14, fontWeight: 600, cursor: "pointer",
+    padding: "7px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
   },
   footerRow: {
     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
@@ -498,7 +534,7 @@ const s = {
   perk: { fontSize: 12, color: "#6b7280" },
   backBtn: {
     background: "#fff", color: "#374151", border: "1px solid #d1d5db",
-    borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+    borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
   },
   laterLink: {
     background: "none", border: "none", padding: 0, cursor: "pointer",
@@ -506,7 +542,7 @@ const s = {
   },
   continueBtn: {
     background: "#2563eb", color: "#fff", border: "none", borderRadius: 8,
-    padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+    padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
   },
   continueBtnOff: { background: "#e5e7eb", color: "#9ca3af", cursor: "not-allowed" },
 };

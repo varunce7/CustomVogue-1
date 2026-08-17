@@ -21,7 +21,7 @@ export default function App() {
         <Meta />
         <Links />
       </head>
-      <body style={{ background: "white", margin: 0 }}>
+      <body style={{ margin: 0 }}>
         <Outlet />
         <ScrollRestoration />
         <Scripts />
@@ -36,8 +36,8 @@ export function ErrorBoundary() {
     error instanceof Error
       ? error.message
       : typeof error === "string"
-      ? error
-      : "An unexpected error occurred. Please reload the page.";
+        ? error
+        : "An unexpected error occurred. Please reload the page.";
 
   console.error("[CustomVogue] Root error boundary caught:", error);
 
@@ -48,10 +48,10 @@ export function ErrorBoundary() {
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <title>Error — CustomVogue</title>
       </head>
-      <body style={{ background: "white", margin: 0, fontFamily: "sans-serif", padding: 32 }}>
+      <body style={{ margin: 0, fontFamily: "sans-serif", padding: 32 }}>
         <h2 style={{ color: "#b91c1c" }}>Something went wrong</h2>
         <p style={{ color: "#374151" }}>{message}</p>
-        <button
+        <s-button variant="primary"
           onClick={() => window.location.reload()}
           style={{
             marginTop: 16, padding: "8px 20px",
@@ -60,7 +60,7 @@ export function ErrorBoundary() {
           }}
         >
           Reload
-        </button>
+        </s-button>
       </body>
     </html>
   );

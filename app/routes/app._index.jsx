@@ -1004,7 +1004,7 @@ export default function Index() {
 
 const s = {
   page: {
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     maxWidth: "86%",
     margin: "0 auto",
     padding: "24px 32px 48px",
@@ -1337,7 +1337,7 @@ const s = {
   formTextarea: {
     width: "100%", border: "1px solid #d1d5db", borderRadius: 7,
     padding: "10px 12px", fontSize: 15, color: "#111827", boxSizing: "border-box",
-    resize: "vertical", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    resize: "vertical", fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   },
   priorityNote: {
     display: "flex", alignItems: "center", gap: 8,

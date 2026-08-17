@@ -161,7 +161,7 @@ export default function ThemeSetup() {
 
 const s = {
   page: {
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     maxWidth: 720,
     margin: "0 auto",
     padding: "24px 24px 48px",
@@ -171,11 +171,11 @@ const s = {
     color: "#6b7280", textDecoration: "none", cursor: "pointer",
     fontSize: 13, fontWeight: 500, marginBottom: 20,
     padding: "6px 12px", borderRadius: 8, border: "1px solid #e5e7eb",
-    background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+    background: "#fff", boxShadow: "0 2px 20px rgba(0, 0, 0, 0.09)",
   },
   card: {
     background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
-    padding: "24px 28px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+    padding: "24px 28px", boxShadow: "0 2px 20px rgba(0, 0, 0, 0.09)",
   },
   headerRow: { display: "flex", alignItems: "center", gap: 12, marginBottom: 20 },
   headerIcon: {
