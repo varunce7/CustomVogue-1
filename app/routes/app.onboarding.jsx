@@ -409,7 +409,7 @@ const s = {
   brand: { display: "flex", alignItems: "center", gap: 10 },
   brandIcon: { width: 32, height: 32, borderRadius: 8, flexShrink: 0, display: "block" },
   brandName: { fontSize: 13, fontWeight: 700, color: "#111827", lineHeight: 1.2 },
-  brandTag: { fontFamily: FONT, fontSize: 11, fontWeight: 400, color: "#6b7280", letterSpacing: "0.01em" },
+  brandTag: { fontFamily: FONT, fontSize: 11, fontWeight: 400, color: "#6b7280", letterSpacing: "0.01em", marginTop: 2 },
 
   /* Welcome splash */
   welcomeCard: { maxWidth: 717, textAlign: "center", padding: "40px 32px 40px" },
