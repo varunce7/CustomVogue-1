@@ -436,7 +436,7 @@ const s = {
   eyebrowMuted: { fontSize: 11, fontWeight: 700, color: "#6b7280", letterSpacing: "0.01em", marginBottom: 10 },
   introTitle: { fontSize: 28, fontWeight: 700, color: "#111827", margin: "0 0 12px", lineHeight: 1.25 },
   introDesc: { fontSize: 14, color: "#4b5563", margin: "0 0 20px", lineHeight: 1.3 },
-  introNote: { fontSize: 12, color: "#9ca3af", margin: "14px 0 0", lineHeight: 1.3 },
+  introNote: { fontSize: 12, color: "#4b5563", margin: "14px 0 0", lineHeight: 1.3 },
 
   compareRow: { display: "grid", gridTemplateColumns: "1fr 1.25fr", gap: 14, alignItems: "start" },
   previewCard: {
