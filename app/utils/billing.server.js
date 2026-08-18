@@ -25,31 +25,64 @@ const CACHE_TTL_AFTER_UPGRADE = 60 * 60 * 1000; // 60 minutes (confirmed plan st
 // eslint-disable-next-line no-undef
 export const BILLING_IS_TEST = process.env.SHOPIFY_BILLING_TEST === "true";
 
-// Whether a store is a Partner development store. No longer used to decide
-// test vs real — kept so the upgrade action can explain *why* Shopify rejected
-// a real charge. Cached because a store's plan doesn't change under us.
-const devStoreCache = new Map();
+// Two shop facts that don't change under us, read together in one call:
+//
+//   partnerDevelopment — a Partner development store cannot hold a payment
+//     method, so Shopify greys out Approve on the charge screen for a real
+//     charge (it still renders the screen and the trial dates, which is what
+//     makes this confusing). Used to explain that up front and after a reject.
+//   ianaTimezone — billing dates must read the same in the app as on Shopify's
+//     approval screen, and Shopify shows them in the shop's own timezone.
+const shopContextCache = new Map();
+const SHOP_CONTEXT_FALLBACK = { isDevelopmentStore: false, timeZone: "UTC" };
 
-export async function isDevelopmentStore(admin, shop) {
-  if (shop && devStoreCache.has(shop)) return devStoreCache.get(shop);
+export async function getShopBillingContext(admin, shop) {
+  if (shop && shopContextCache.has(shop)) return shopContextCache.get(shop);
 
   try {
     const response = await admin.graphql(
       `#graphql
-      query shopPlan {
-        shop { plan { partnerDevelopment } }
+      query shopBillingContext {
+        shop { ianaTimezone plan { partnerDevelopment } }
       }`
     );
     const json = await response.json();
-    const isDev = Boolean(json.data?.shop?.plan?.partnerDevelopment);
-    if (shop) devStoreCache.set(shop, isDev);
-    return isDev;
+    const shopData = json.data?.shop;
+    if (!shopData) throw new Error("no shop in response");
+    const context = {
+      isDevelopmentStore: Boolean(shopData.plan?.partnerDevelopment),
+      timeZone: shopData.ianaTimezone || "UTC",
+    };
+    if (shop) shopContextCache.set(shop, context);
+    return context;
   } catch (e) {
     console.error(
-      "[CustomVogue] isDevelopmentStore failed:",
+      "[CustomVogue] getShopBillingContext failed:",
       e instanceof Error ? e.message : String(e),
     );
-    return false;
+    // Not cached: a transient failure must not pin the wrong answer for the
+    // lifetime of the instance.
+    return SHOP_CONTEXT_FALLBACK;
+  }
+}
+
+export async function isDevelopmentStore(admin, shop) {
+  return (await getShopBillingContext(admin, shop)).isDevelopmentStore;
+}
+
+// Billing dates are rendered on the server so SSR and hydration agree (the
+// server's timezone is not the merchant's), and in the shop's timezone so the
+// date matches the one Shopify prints on the approval screen.
+export function formatBillingDate(value, timeZone = "UTC") {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const options = { month: "short", day: "numeric", year: "numeric" };
+  try {
+    return new Intl.DateTimeFormat("en-US", { ...options, timeZone }).format(date);
+  } catch {
+    // Intl throws RangeError on an unknown zone — a readable UTC date beats none.
+    return new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" }).format(date);
   }
 }
 
@@ -194,20 +227,39 @@ export async function getTrialState(admin) {
     );
 
     // Trial days run from creation, so the trial ends at createdAt + trialDays.
+    // This is the same arithmetic Shopify itself shows on the approval screen
+    // ("a 7-day free trial ending on <date>" / "Due <date>"), which is why the
+    // date below matches what the merchant already agreed to. Deliberately not
+    // currentPeriodEnd: that is the end of the billing period, not the trial.
     const active = installation.activeSubscriptions?.[0] ?? null;
     let trialDaysRemaining = 0;
+    let trialEndsAt = null;
     if (active && (active.trialDays ?? 0) > 0) {
       const endsAt = new Date(active.createdAt).getTime() + active.trialDays * DAY_MS;
-      trialDaysRemaining = Math.max(0, Math.ceil((endsAt - Date.now()) / DAY_MS));
+      if (!Number.isNaN(endsAt)) {
+        trialDaysRemaining = Math.max(0, Math.ceil((endsAt - Date.now()) / DAY_MS));
+        if (trialDaysRemaining > 0) trialEndsAt = new Date(endsAt).toISOString();
+      }
     }
 
-    return { hasUsedTrial, trialDaysRemaining, inTrial: trialDaysRemaining > 0 };
+    return {
+      hasUsedTrial,
+      trialDaysRemaining,
+      inTrial: trialDaysRemaining > 0,
+      trialEndsAt,
+    };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[CustomVogue] getTrialState failed:", msg);
     // Can't read the history — offer the trial rather than block a legitimate
     // upgrade. Worst case a shop gets a second trial after an API outage.
-    return { hasUsedTrial: false, trialDaysRemaining: 0, inTrial: false, unknown: true };
+    return {
+      hasUsedTrial: false,
+      trialDaysRemaining: 0,
+      inTrial: false,
+      trialEndsAt: null,
+      unknown: true,
+    };
   }
 }
 

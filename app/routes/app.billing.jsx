@@ -6,7 +6,9 @@ import { syncShopPlan } from "../utils/appUrl.server.js";
 import {
   BILLING_IS_TEST,
   confirmActivePlan,
+  formatBillingDate,
   getCurrentPlan,
+  getShopBillingContext,
   getTrialState,
   invalidatePlanCache,
   isDevelopmentStore,
@@ -14,14 +16,36 @@ import {
 } from "../utils/billing.server.js";
 import { PLANS, PLAN_FEATURES, PLAN_PRICING, TRIAL_DAYS } from "../utils/plans.js";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export const loader = async ({ request }) => {
   const { session, billing, admin } = await authenticate.admin(request);
   const url = new URL(request.url);
 
   // Drives the trial copy on the Growth card and the "N days left" badge.
-  const trial = await getTrialState(admin);
+  const [trial, shopContext] = await Promise.all([
+    getTrialState(admin),
+    getShopBillingContext(admin, session.shop),
+  ]);
   // Charges are real unless SHOPIFY_BILLING_TEST=true is set explicitly.
   const isTest = BILLING_IS_TEST;
+
+  // Two different dates, both in the shop's own timezone so they read exactly
+  // like the ones on Shopify's approval screen:
+  //   trialEndsOn    — the running trial's real end date, from the subscription.
+  //   trialWouldEndOn — what the merchant gets if they start the trial now.
+  //     Shopify dates the trial from when the subscription is created, so this
+  //     is recomputed on every load rather than pinned at first view.
+  const trialEndsOn = formatBillingDate(trial.trialEndsAt, shopContext.timeZone);
+  const trialWouldEndOn = formatBillingDate(
+    new Date(Date.now() + TRIAL_DAYS * DAY_MS),
+    shopContext.timeZone,
+  );
+  // A development store can't hold a payment method, so Shopify renders the
+  // approval screen (trial dates and all) with Approve permanently greyed out.
+  // Worth saying before the merchant clicks, not only if the charge is rejected.
+  const devStoreBlocksRealCharge = !isTest && shopContext.isDevelopmentStore;
+  const dates = { trialEndsOn, trialWouldEndOn, devStoreBlocksRealCharge };
 
   // ── Upgrade return ──────────────────────────────────────────────────────────
   // Shopify appends ?charge_id=... after the merchant approves the charge, but
@@ -31,11 +55,19 @@ export const loader = async ({ request }) => {
     invalidatePlanCache(session.shop);
     const { plan, confirmed } = await confirmActivePlan(billing, session.shop);
     syncShopPlan(admin, session.shop, plan, true).catch(() => { });
+    // The trial read at the top of this loader ran before the subscription
+    // flipped to ACTIVE, so activeSubscriptions was still empty and there was
+    // no end date to show on the very screen the merchant lands on after
+    // approving. Re-read it now that the charge is confirmed.
+    const activeTrial = plan === PLANS.GROWTH ? await getTrialState(admin) : trial;
     return {
       plan,
-      trial,
+      trial: activeTrial,
       trialDays: TRIAL_DAYS,
       isTest,
+      ...dates,
+      trialEndsOn:
+        formatBillingDate(activeTrial.trialEndsAt, shopContext.timeZone) ?? trialEndsOn,
       upgradeNotConfirmed: plan === PLANS.FREE,
       pendingConfirmation: plan === PLANS.GROWTH && !confirmed,
     };
@@ -48,7 +80,7 @@ export const loader = async ({ request }) => {
   if (url.searchParams.has("cancelled")) {
     const plan = await getCurrentPlan(billing, session.shop); // returns cached FREE
     syncShopPlan(admin, session.shop, plan, true).catch(() => { });
-    return { plan, trial, trialDays: TRIAL_DAYS, isTest };
+    return { plan, trial, trialDays: TRIAL_DAYS, isTest, ...dates };
   }
 
   // ── Normal page load ────────────────────────────────────────────────────────
@@ -57,7 +89,7 @@ export const loader = async ({ request }) => {
   // dev and wiping the cache here would reset the plan to Free on every navigation.
   const plan = await getCurrentPlan(billing, session.shop);
   syncShopPlan(admin, session.shop, plan, true).catch(() => { });
-  return { plan, trial, trialDays: TRIAL_DAYS, isTest };
+  return { plan, trial, trialDays: TRIAL_DAYS, isTest, ...dates };
 };
 
 // Turns Shopify's terse billing rejections into something a human can act on.
@@ -207,7 +239,17 @@ export const action = async ({ request }) => {
 const CHECK = "✓";
 
 export default function BillingPage() {
-  const { plan, trial, trialDays, isTest, upgradeNotConfirmed, pendingConfirmation } = useLoaderData();
+  const {
+    plan,
+    trial,
+    trialDays,
+    isTest,
+    trialEndsOn,
+    trialWouldEndOn,
+    devStoreBlocksRealCharge,
+    upgradeNotConfirmed,
+    pendingConfirmation,
+  } = useLoaderData();
   const upgradeFetcher = useFetcher();
   const cancelFetcher = useFetcher();
   const navigate = useNavigate();
@@ -290,6 +332,17 @@ export default function BillingPage() {
         </div>
       )}
 
+      {/* Only ever true on a Partner development store, so no live merchant
+          sees this. It explains the one thing the approval screen itself does
+          not: the trial and dates render correctly, but Approve stays greyed
+          out because the store can hold no payment method. */}
+      {devStoreBlocksRealCharge && !isGrowth && (
+        <div style={styles.warningBanner}>
+          <strong>Development store — Approve will be greyed out.</strong>{" "}
+          {`The charge is a real one, so Shopify shows the ${trialDays}-day trial and its end date but will not let you approve it: a development store can't have a payment method on file. This is Shopify's rule, not a problem with the app — on a live store with a payment method the Approve button is enabled. To walk through the flow here, set SHOPIFY_BILLING_TEST=true and reload.`}
+        </div>
+      )}
+
       {/* Plan cards */}
       <div style={styles.cardsRow}>
         {/* Free Plan */}
@@ -346,11 +399,20 @@ export default function BillingPage() {
           </div>
           <p style={{ ...styles.trialNote, ...(trialEligible || inTrial ? styles.trialNoteHighlight : {}) }}>
             {trialEligible
-              ? `${trialDays}-day free trial, then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
+              ? trialWouldEndOn
+                ? `${trialDays}-day free trial — free until ${trialWouldEndOn}, then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
+                : `${trialDays}-day free trial, then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
               : inTrial
-                ? `Free until your trial ends — then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
+                ? trialEndsOn
+                  ? `Free until ${trialEndsOn} — then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
+                  : `Free until your trial ends — then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
                 : "Cancel anytime"}
           </p>
+          {inTrial && trialEndsOn && (
+            <p style={styles.trialDateLine}>
+              {`Your free trial expires on ${trialEndsOn}. Your first $${PLAN_PRICING[PLANS.GROWTH].amount} charge is on that date — cancel before then and you pay nothing.`}
+            </p>
+          )}
           <ul style={styles.featureList}>
             {PLAN_FEATURES[PLANS.GROWTH].map((f) => (
               <li key={f} style={styles.featureItem}>
@@ -605,6 +667,19 @@ const styles = {
     fontSize: 12,
     color: "#9ca3af",
     margin: "0 0 20px",
+    // Reserve two lines on both cards: the Growth note now carries a date and
+    // wraps, and without this the feature lists stop lining up side by side.
+    minHeight: 30,
+  },
+  trialDateLine: {
+    fontSize: 12,
+    color: "#374151",
+    background: "#f0fdf4",
+    border: "1px solid #bbf7d0",
+    borderRadius: 6,
+    padding: "8px 10px",
+    margin: "-12px 0 20px",
+    lineHeight: 1.5,
   },
   featureList: {
     listStyle: "none",
