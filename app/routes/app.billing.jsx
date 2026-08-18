@@ -381,12 +381,7 @@ export default function BillingPage() {
           the charge is a test one — which is precisely what keeps Approve
           clickable there instead of greyed out. Everything else about the flow
           (trial, end date, plan features) behaves exactly as it does live. */}
-      {isDevStore && !isGrowth && (
-        <div style={styles.noticeBanner}>
-          <strong>Development store — this is a test charge.</strong>{" "}
-          {`Shopify can't take real money on a development store, so the approval screen says "You will not be billed for this test charge". Approve works normally, the ${trialDays}-day trial and its end date are real, and nothing is charged. On a live store the same flow takes a real payment.`}
-        </div>
-      )}
+     
 
       {/* Plan cards */}
       <div style={styles.cardsRow}>
