@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useAppBridge } from "@shopify/app-bridge-react";
+import { useEffect, useRef } from "react";
 import { redirect, useFetcher, useLoaderData, useNavigate, useSearchParams } from "react-router";
 import { useBusyTimeout } from "../hooks/useBusyTimeout";
 import { authenticate } from "../shopify.server";
@@ -70,6 +71,10 @@ export const loader = async ({ request }) => {
         formatBillingDate(activeTrial.trialEndsAt, shopContext.timeZone) ?? trialEndsOn,
       upgradeNotConfirmed: plan === PLANS.FREE,
       pendingConfirmation: plan === PLANS.GROWTH && !confirmed,
+      // Only set on the return from Shopify's approval screen, and only once
+      // the subscription is really active — drives the "plan is now active"
+      // toast. A normal visit to this page must never fire it.
+      justActivated: plan === PLANS.GROWTH,
     };
   }
 
@@ -247,11 +252,13 @@ export default function BillingPage() {
     trialEndsOn,
     trialWouldEndOn,
     devStoreBlocksRealCharge,
+    justActivated,
     upgradeNotConfirmed,
     pendingConfirmation,
   } = useLoaderData();
   const upgradeFetcher = useFetcher();
   const cancelFetcher = useFetcher();
+  const shopify = useAppBridge();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnTab = searchParams.get("tab") || "App Settings";
@@ -262,6 +269,22 @@ export default function BillingPage() {
   const daysLeft = trial?.trialDaysRemaining ?? 0;
   const upgradeError = upgradeFetcher.data?.error;
   const confirmationUrl = upgradeFetcher.data?.confirmationUrl;
+
+  // Confirmation toast on the way back from Shopify's approval screen, the way
+  // Shopify's own billing pages acknowledge an approved charge. Guarded by a
+  // ref because ?charge_id stays in the URL: any revalidation of this route
+  // would otherwise re-announce an activation that already happened. Wrapped
+  // because a toast failing must never take the billing page down with it.
+  const toastShown = useRef(false);
+  useEffect(() => {
+    if (!justActivated || toastShown.current) return;
+    toastShown.current = true;
+    try {
+      shopify?.toast?.show("Your plan is now active", { duration: 4000 });
+    } catch (e) {
+      console.error("[CustomVogue] plan toast failed:", e instanceof Error ? e.message : e);
+    }
+  }, [justActivated, shopify]);
 
   // The charge approval page must replace the whole admin window, not load
   // inside the app's iframe. App Bridge intercepts window.open(url, "_top");
@@ -304,6 +327,25 @@ export default function BillingPage() {
         <h1 style={styles.heading}>Choose your plan</h1>
         <p style={styles.subheading}>Start free, upgrade when you need more.</p>
       </div>
+
+      {/* Trial banner — the one place the merchant is told, in plain words and
+          with a real date, when the free trial stops being free. Shown for as
+          long as the trial runs, not just on the hop back from approval. */}
+      {inTrial && trialEndsOn && (
+        <div style={styles.trialBanner}>
+          <span style={styles.trialBannerIcon} aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+          </span>
+          <span>
+            {`Your free trial ends on ${trialEndsOn}.`}{" "}
+            <span style={styles.trialBannerMuted}>
+              {`You won't be charged until then — the first $${PLAN_PRICING[PLANS.GROWTH].amount} payment is taken on that date, and cancelling before it costs you nothing.`}
+            </span>
+          </span>
+        </div>
+      )}
 
       {upgradeError && (
         <div style={styles.errorBanner}>{upgradeError}</div>
@@ -408,11 +450,6 @@ export default function BillingPage() {
                   : `Free until your trial ends — then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
                 : "Cancel anytime"}
           </p>
-          {inTrial && trialEndsOn && (
-            <p style={styles.trialDateLine}>
-              {`Your free trial expires on ${trialEndsOn}. Your first $${PLAN_PRICING[PLANS.GROWTH].amount} charge is on that date — cancel before then and you pay nothing.`}
-            </p>
-          )}
           <ul style={styles.featureList}>
             {PLAN_FEATURES[PLANS.GROWTH].map((f) => (
               <li key={f} style={styles.featureItem}>
@@ -422,7 +459,7 @@ export default function BillingPage() {
             ))}
           </ul>
           {isGrowth ? (
-            <div style={{ ...styles.planBtn, ...styles.currentBtn }}>Current plan</div>
+            <div style={{ ...styles.planBtn, ...styles.currentBtn }}>Subscribed</div>
           ) : (
             <upgradeFetcher.Form method="post">
               <input type="hidden" name="intent" value="upgrade" />
@@ -671,15 +708,28 @@ const styles = {
     // wraps, and without this the feature lists stop lining up side by side.
     minHeight: 30,
   },
-  trialDateLine: {
-    fontSize: 12,
-    color: "#374151",
-    background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
-    borderRadius: 6,
-    padding: "8px 10px",
-    margin: "-12px 0 20px",
+  trialBanner: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 10,
+    padding: "14px 16px",
+    fontSize: 13,
+    color: "#111827",
     lineHeight: 1.5,
+    marginBottom: 20,
+    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+  },
+  trialBannerIcon: {
+    color: "#2563eb",
+    display: "flex",
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  trialBannerMuted: {
+    color: "#6b7280",
   },
   featureList: {
     listStyle: "none",
