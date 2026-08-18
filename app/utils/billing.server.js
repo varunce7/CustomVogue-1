@@ -224,7 +224,15 @@ const TRIAL_CONSUMING_STATUSES = new Set(["ACTIVE", "FROZEN", "CANCELLED", "EXPI
 // re-subscribing, so eligibility is derived from the shop's own subscription
 // history: if this app ever created a subscription carrying trial days for
 // them, they've had their trial.
-export async function getTrialState(admin) {
+// allowRepeatTrial re-offers the trial to a shop that has already had one. It
+// is passed only for Partner development stores: the one-trial-per-shop rule
+// exists to stop a paying merchant farming free months by cancelling and
+// re-subscribing, and no money can change hands on a development store, so
+// there is nothing there for the rule to protect. Without this, testing the
+// upgrade flow once permanently burns that store's trial and every later run
+// creates a subscription with trialDays: 0 — which is why the trial copy and
+// its end date then disappear from the page with nothing actually broken.
+export async function getTrialState(admin, { allowRepeatTrial = false } = {}) {
   try {
     const response = await admin.graphql(
       `#graphql
@@ -244,9 +252,9 @@ export async function getTrialState(admin) {
     // PENDING means they opened the approval screen and never confirmed;
     // DECLINED means they rejected it. Counting either would burn the trial of
     // someone who never got a single day of it.
-    const hasUsedTrial = all.some(
-      (s) => (s.trialDays ?? 0) > 0 && TRIAL_CONSUMING_STATUSES.has(s.status),
-    );
+    const hasUsedTrial =
+      !allowRepeatTrial &&
+      all.some((s) => (s.trialDays ?? 0) > 0 && TRIAL_CONSUMING_STATUSES.has(s.status));
 
     // Trial days run from creation, so the trial ends at createdAt + trialDays.
     // This is the same arithmetic Shopify itself shows on the approval screen

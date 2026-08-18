@@ -23,10 +23,17 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
 
   // Drives the trial copy on the Growth card and the "N days left" badge.
-  const [trial, shopContext] = await Promise.all([
+  // Both reads are issued together; the dev-store trial allowance is applied
+  // afterwards rather than passed in, so the two queries still run in parallel.
+  const [rawTrial, shopContext] = await Promise.all([
     getTrialState(admin),
     getShopBillingContext(admin, session.shop),
   ]);
+  // Must match the allowRepeatTrial the upgrade action uses, or the card would
+  // advertise a trial the subscription is then created without.
+  const trial = shopContext.isDevelopmentStore
+    ? { ...rawTrial, hasUsedTrial: false }
+    : rawTrial;
   // Real charge on a real store. A Partner development store gets a test
   // charge, because Shopify greys out Approve on a real one there — see
   // resolveBillingTest. Kept identical to what the upgrade action passes to
@@ -142,15 +149,18 @@ export const action = async ({ request }) => {
     const returnUrl = `https://admin.shopify.com/store/${shopHandle}/apps/${appHandle}/app/billing`;
     const pricing = PLAN_PRICING[PLANS.GROWTH];
 
-    // One trial per shop — a merchant who cancels and re-subscribes pays from
-    // day one. Shopify does not enforce this, so it's checked here.
-    const { hasUsedTrial } = await getTrialState(admin);
-    const trialDays = hasUsedTrial ? 0 : TRIAL_DAYS;
-
     // Real money on a real store. Only a Partner development store (where
     // Shopify refuses to process money at all, and would render Approve greyed
     // out) or the explicit SHOPIFY_BILLING_TEST override gets a test charge.
     const isTest = await resolveBillingTest(admin, session.shop);
+
+    // One trial per shop — a merchant who cancels and re-subscribes pays from
+    // day one. Shopify does not enforce this, so it's checked here. Lifted on
+    // development stores, which can never be billed and so have no revenue to
+    // protect; the loader applies the same allowance to the card's copy.
+    const devStore = await isDevelopmentStore(admin, session.shop);
+    const { hasUsedTrial } = await getTrialState(admin, { allowRepeatTrial: devStore });
+    const trialDays = hasUsedTrial ? 0 : TRIAL_DAYS;
 
     try {
       const response = await admin.graphql(
@@ -246,13 +256,32 @@ export const action = async ({ request }) => {
 
 const CHECK = "✓";
 
+// Hover/active feedback for the plan buttons — inline styles can't express
+// pseudo-classes, so this is the same <style> pattern app.onboarding.jsx uses.
+const CSS = `
+  .cv-plan-btn {
+    transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .cv-plan-btn:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(17,24,39,0.18);
+  }
+  .cv-plan-btn:not(:disabled):active {
+    transform: translateY(0);
+    box-shadow: 0 1px 4px rgba(17,24,39,0.16);
+  }
+  .cv-plan-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+`;
+
 export default function BillingPage() {
   const {
     plan,
     trial,
     trialDays,
     trialEndsOn,
-    isDevStore,
     testChargeForced,
     justActivated,
     upgradeNotConfirmed,
@@ -318,6 +347,7 @@ export default function BillingPage() {
 
   return (
     <div style={styles.page}>
+      <style>{CSS}</style>
       {/* Header */}
       <div style={styles.header}>
         <button type="button" onClick={handleBack} style={styles.backLink}>
@@ -376,18 +406,6 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Only ever true on a Partner development store, so no live merchant
-          sees this. Shopify will not process money on a development store, so
-          the charge is a test one — which is precisely what keeps Approve
-          clickable there instead of greyed out. Everything else about the flow
-          (trial, end date, plan features) behaves exactly as it does live. */}
-      {isDevStore && !isGrowth && (
-        <div style={styles.noticeBanner}>
-          <strong>Development store — this is a test charge.</strong>{" "}
-          {`Shopify can't take real money on a development store, so the approval screen says "You will not be billed for this test charge". Approve works normally, the ${trialDays}-day trial and its end date are real, and nothing is charged. On a live store the same flow takes a real payment.`}
-        </div>
-      )}
-
       {/* Plan cards */}
       <div style={styles.cardsRow}>
         {/* Free Plan */}
@@ -410,16 +428,15 @@ export default function BillingPage() {
             ))}
           </ul>
           {isGrowth ? (
-            <div style={styles.btnSlot}>
-              <s-button
-                type="button"
-                tone="critical"
-                {...(isCancelling ? { disabled: true } : {})}
-                onClick={() => cancelFetcher.submit({ intent: "cancel" }, { method: "post" })}
-              >
-                {isCancelling ? "Processing…" : "Downgrade to Free"}
-              </s-button>
-            </div>
+            <button
+              type="button"
+              className="cv-plan-btn"
+              style={{ ...styles.planBtn, ...styles.cancelBtn }}
+              disabled={isCancelling}
+              onClick={() => cancelFetcher.submit({ intent: "cancel" }, { method: "post" })}
+            >
+              {isCancelling ? "Processing…" : "Downgrade to Free"}
+            </button>
           ) : (
             <div style={{ ...styles.planBtn, ...styles.currentBtn }}>Current plan</div>
           )}
@@ -464,20 +481,23 @@ export default function BillingPage() {
           {isGrowth ? (
             <div style={{ ...styles.planBtn, ...styles.currentBtn }}>Subscribed</div>
           ) : (
-            <div style={styles.btnSlot}>
-              <s-button
-                type="button"
-                variant="primary"
-                {...(isUpgrading ? { disabled: true } : {})}
-                onClick={() => upgradeFetcher.submit({ intent: "upgrade" }, { method: "post" })}
-              >
-                {isUpgrading
-                  ? "Processing…"
-                  : trialEligible
-                    ? "Select free trial"
-                    : `Select monthly — $${PLAN_PRICING[PLANS.GROWTH].amount}/mo`}
-              </s-button>
-            </div>
+            <button
+              type="button"
+              className="cv-plan-btn"
+              style={{ ...styles.planBtn, ...styles.upgradeBtn }}
+              disabled={isUpgrading}
+              onClick={() => upgradeFetcher.submit({ intent: "upgrade" }, { method: "post" })}
+            >
+              {/* "Start free trial" only while a trial is genuinely on offer.
+                  Once this shop has had its one trial, the button has to name
+                  the price instead — offering a trial it can no longer give
+                  would be a promise Shopify's approval screen then breaks. */}
+              {isUpgrading
+                ? "Processing…"
+                : trialEligible
+                  ? "Start free trial"
+                  : `Select monthly — $${PLAN_PRICING[PLANS.GROWTH].amount}/mo`}
+            </button>
           )}
         </div>
       </div>
@@ -760,28 +780,34 @@ const styles = {
   planBtn: {
     display: "block",
     width: "100%",
-    padding: "11px 0",
+    padding: "0.65rem 1rem",
     borderRadius: 6,
     fontSize: 14,
     fontWeight: 600,
+    fontFamily: "inherit",
+    lineHeight: 1.4,
     textAlign: "center",
     cursor: "pointer",
-    border: "none",
+    border: "1px solid transparent",
     boxSizing: "border-box",
+  },
+  // Every plan action — Start free trial, Select monthly, Downgrade to Free —
+  // and both non-interactive states (Current plan, Subscribed) share planBtn,
+  // so all four render at exactly the same width and height whichever pair of
+  // states the two cards happen to be in.
+  upgradeBtn: {
+    background: "#1a1a1a",
+    color: "#fff",
   },
   currentBtn: {
     background: "#f3f4f6",
     color: "#6b7280",
     cursor: "default",
   },
-  // Wrapper for the Polaris <s-button>s. They are shadow-DOM custom elements,
-  // so they own their own look — this only places them, matching the centred
-  // action button on Shopify's own plan cards. The card's feature list carries
-  // flex:1, which is what pins this row to the bottom of the card.
-  btnSlot: {
-    display: "flex",
-    justifyContent: "center",
-    width: "100%",
+  cancelBtn: {
+    background: "#fff",
+    color: "#b91c1c",
+    border: "1px solid #e5e7eb",
   },
   tableWrap: {
     borderRadius: 12,
