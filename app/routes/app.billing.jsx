@@ -17,8 +17,6 @@ import {
 } from "../utils/billing.server.js";
 import { PLANS, PLAN_FEATURES, PLAN_PRICING, TRIAL_DAYS } from "../utils/plans.js";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 export const loader = async ({ request }) => {
   const { session, billing, admin } = await authenticate.admin(request);
   const url = new URL(request.url);
@@ -31,22 +29,18 @@ export const loader = async ({ request }) => {
   // Charges are real unless SHOPIFY_BILLING_TEST=true is set explicitly.
   const isTest = BILLING_IS_TEST;
 
-  // Two different dates, both in the shop's own timezone so they read exactly
-  // like the ones on Shopify's approval screen:
-  //   trialEndsOn    — the running trial's real end date, from the subscription.
-  //   trialWouldEndOn — what the merchant gets if they start the trial now.
-  //     Shopify dates the trial from when the subscription is created, so this
-  //     is recomputed on every load rather than pinned at first view.
+  // The trial end date exists only once a subscription does. Nothing here
+  // projects a date for a trial that hasn't started: the merchant starts the
+  // trial by approving the charge on Shopify's screen, and that screen is where
+  // they first see the date. Showing one earlier reads as "your trial is
+  // already running", which is not what happened. Formatted in the shop's own
+  // timezone so it matches the date Shopify prints on the approval screen.
   const trialEndsOn = formatBillingDate(trial.trialEndsAt, shopContext.timeZone);
-  const trialWouldEndOn = formatBillingDate(
-    new Date(Date.now() + TRIAL_DAYS * DAY_MS),
-    shopContext.timeZone,
-  );
   // A development store can't hold a payment method, so Shopify renders the
   // approval screen (trial dates and all) with Approve permanently greyed out.
   // Worth saying before the merchant clicks, not only if the charge is rejected.
   const devStoreBlocksRealCharge = !isTest && shopContext.isDevelopmentStore;
-  const dates = { trialEndsOn, trialWouldEndOn, devStoreBlocksRealCharge };
+  const dates = { trialEndsOn, devStoreBlocksRealCharge };
 
   // ── Upgrade return ──────────────────────────────────────────────────────────
   // Shopify appends ?charge_id=... after the merchant approves the charge, but
@@ -250,7 +244,6 @@ export default function BillingPage() {
     trialDays,
     isTest,
     trialEndsOn,
-    trialWouldEndOn,
     devStoreBlocksRealCharge,
     justActivated,
     upgradeNotConfirmed,
@@ -441,9 +434,7 @@ export default function BillingPage() {
           </div>
           <p style={{ ...styles.trialNote, ...(trialEligible || inTrial ? styles.trialNoteHighlight : {}) }}>
             {trialEligible
-              ? trialWouldEndOn
-                ? `${trialDays}-day free trial — free until ${trialWouldEndOn}, then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
-                : `${trialDays}-day free trial, then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
+              ? `${trialDays}-day free trial, then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
               : inTrial
                 ? trialEndsOn
                   ? `Free until ${trialEndsOn} — then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
