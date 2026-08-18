@@ -381,7 +381,12 @@ export default function BillingPage() {
           the charge is a test one — which is precisely what keeps Approve
           clickable there instead of greyed out. Everything else about the flow
           (trial, end date, plan features) behaves exactly as it does live. */}
-     
+      {isDevStore && !isGrowth && (
+        <div style={styles.noticeBanner}>
+          <strong>Development store — this is a test charge.</strong>{" "}
+          {`Shopify can't take real money on a development store, so the approval screen says "You will not be billed for this test charge". Approve works normally, the ${trialDays}-day trial and its end date are real, and nothing is charged. On a live store the same flow takes a real payment.`}
+        </div>
+      )}
 
       {/* Plan cards */}
       <div style={styles.cardsRow}>
@@ -405,16 +410,16 @@ export default function BillingPage() {
             ))}
           </ul>
           {isGrowth ? (
-            <cancelFetcher.Form method="post">
-              <input type="hidden" name="intent" value="cancel" />
-              <button
-                type="submit"
-                style={{ ...styles.planBtn, ...styles.cancelBtn }}
-                disabled={isCancelling}
+            <div style={styles.btnSlot}>
+              <s-button
+                type="button"
+                tone="critical"
+                {...(isCancelling ? { disabled: true } : {})}
+                onClick={() => cancelFetcher.submit({ intent: "cancel" }, { method: "post" })}
               >
                 {isCancelling ? "Processing…" : "Downgrade to Free"}
-              </button>
-            </cancelFetcher.Form>
+              </s-button>
+            </div>
           ) : (
             <div style={{ ...styles.planBtn, ...styles.currentBtn }}>Current plan</div>
           )}
@@ -438,12 +443,14 @@ export default function BillingPage() {
             <span style={styles.pricePer}>/month</span>
           </div>
           <p style={{ ...styles.trialNote, ...(trialEligible || inTrial ? styles.trialNoteHighlight : {}) }}>
+            {/* The end date always comes after the price, so the merchant reads
+                the amount first and then the day it starts being charged. */}
             {trialEligible
               ? `${trialDays}-day free trial, then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
               : inTrial
                 ? trialEndsOn
-                  ? `Free until ${trialEndsOn} — then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
-                  : `Free until your trial ends — then $${PLAN_PRICING[PLANS.GROWTH].amount}/month`
+                  ? `Free trial — then $${PLAN_PRICING[PLANS.GROWTH].amount}/month from ${trialEndsOn}`
+                  : `Free trial — then $${PLAN_PRICING[PLANS.GROWTH].amount}/month when it ends`
                 : "Cancel anytime"}
           </p>
           <ul style={styles.featureList}>
@@ -457,20 +464,20 @@ export default function BillingPage() {
           {isGrowth ? (
             <div style={{ ...styles.planBtn, ...styles.currentBtn }}>Subscribed</div>
           ) : (
-            <upgradeFetcher.Form method="post">
-              <input type="hidden" name="intent" value="upgrade" />
-              <button
-                type="submit"
-                style={{ ...styles.planBtn, ...styles.upgradeBtn }}
-                disabled={isUpgrading}
+            <div style={styles.btnSlot}>
+              <s-button
+                type="button"
+                variant="primary"
+                {...(isUpgrading ? { disabled: true } : {})}
+                onClick={() => upgradeFetcher.submit({ intent: "upgrade" }, { method: "post" })}
               >
                 {isUpgrading
                   ? "Processing…"
                   : trialEligible
-                    ? `Start ${trialDays}-day free trial`
+                    ? "Select free trial"
                     : `Select monthly — $${PLAN_PRICING[PLANS.GROWTH].amount}/mo`}
-              </button>
-            </upgradeFetcher.Form>
+              </s-button>
+            </div>
           )}
         </div>
       </div>
@@ -762,19 +769,18 @@ const styles = {
     border: "none",
     boxSizing: "border-box",
   },
-  upgradeBtn: {
-    background: "#2563eb",
-    color: "#fff",
-  },
   currentBtn: {
     background: "#f3f4f6",
     color: "#6b7280",
     cursor: "default",
   },
-  cancelBtn: {
-    background: "#fff",
-    color: "#6b7280",
-    border: "1px solid #d1d5db",
+  // Wrapper for the Polaris <s-button>s. They are shadow-DOM custom elements,
+  // so they own their own look — this only places them, matching the centred
+  // action button on Shopify's own plan cards. The card's feature list carries
+  // flex:1, which is what pins this row to the bottom of the card.
+  btnSlot: {
+    display: "flex",
+    justifyContent: "center",
     width: "100%",
   },
   tableWrap: {
