@@ -97,13 +97,30 @@ export const action = async ({ request }) => {
     };
   }
 
+  // A GID is only meaningful within the store that issued it, so a CSV exported
+  // from a different store carries IDs that look perfectly valid but match no
+  // product here. Those used to be trusted without checking, and the failure
+  // only surfaced later when Shopify rejected the unknown ownerId on the
+  // metafield write — as a thrown error, i.e. the "Application Error" page.
+  // Check existence up front so unknown products are simply counted as skipped
+  // and reported in plain words below.
+  const existingGids = await findExistingProductGids(
+    admin,
+    [...byProduct.keys()].filter((id) => id.startsWith("gid://shopify/Product/")),
+  );
+  if (existingGids === null) {
+    return { error: "Couldn't check your products with Shopify just now, so the import was stopped before anything was changed. Please try again in a moment." };
+  }
+
   // Resolve any handles to GIDs in parallel rather than one lookup at a time.
   // Ensure productId is a Shopify GID — handles (e.g. "my-product") are invalid as ownerId.
   const resolved = await mapWithConcurrency(
     [...byProduct.entries()],
     DB_CONCURRENCY,
     async ([productId, { fields }]) => {
-      if (productId.startsWith("gid://shopify/Product/")) return { gid: productId, fields };
+      if (productId.startsWith("gid://shopify/Product/")) {
+        return existingGids.has(productId) ? { gid: productId, fields } : null;
+      }
 
       const gid = await resolveProductGid(admin, productId);
       if (!gid) return null;
@@ -124,7 +141,20 @@ export const action = async ({ request }) => {
   }));
 
   // One batched sync for every product instead of a request each.
-  await writeAccordionMetafieldsBatch(admin, saved);
+  // writeAccordionMetafieldsBatch throws on any userError from Shopify; left
+  // uncaught that lands in the route ErrorBoundary and the merchant sees a bare
+  // "Application Error" with no idea what went wrong or what to do next.
+  try {
+    await writeAccordionMetafieldsBatch(admin, saved);
+  } catch (e) {
+    console.error(
+      "[CustomVogue] import metafield sync failed:",
+      e instanceof Error ? e.message : String(e),
+    );
+    return {
+      error: "The fields were imported, but publishing them to your storefront failed. Open any imported product in the app and save it once to retry the sync.",
+    };
+  }
   const imported = saved.length;
 
   if (imported === 0 && skipped > 0) {
@@ -133,6 +163,48 @@ export const action = async ({ request }) => {
 
   return { success: true, imported, skipped };
 };
+
+// `nodes` accepts up to 250 ids per call; stay well under it.
+const GID_LOOKUP_CHUNK = 100;
+
+// Which of these product GIDs actually exist in *this* store. Shopify returns a
+// null node for an id it doesn't own, which is exactly the case for a CSV
+// exported from another store. Returns null (not an empty Set) if the lookup
+// itself failed, so the caller can tell "no products matched" apart from
+// "couldn't ask" and doesn't wipe an import on a transient API error.
+async function findExistingProductGids(admin, gids) {
+  const existing = new Set();
+  if (gids.length === 0) return existing;
+
+  try {
+    for (let i = 0; i < gids.length; i += GID_LOOKUP_CHUNK) {
+      const res = await admin.graphql(
+        `#graphql
+        query productsExist($ids: [ID!]!) {
+          nodes(ids: $ids) { ... on Product { id } }
+        }`,
+        { variables: { ids: gids.slice(i, i + GID_LOOKUP_CHUNK) } }
+      );
+      const json = await res.json();
+      // A malformed id makes Shopify reject the whole query rather than return
+      // a null node, so treat top-level errors as an unusable answer.
+      if (json.errors?.length) {
+        console.error("[CustomVogue] findExistingProductGids errors:", JSON.stringify(json.errors).slice(0, 300));
+        return null;
+      }
+      for (const node of json.data?.nodes ?? []) {
+        if (node?.id) existing.add(node.id);
+      }
+    }
+    return existing;
+  } catch (e) {
+    console.error(
+      "[CustomVogue] findExistingProductGids failed:",
+      e instanceof Error ? e.message : String(e),
+    );
+    return null;
+  }
+}
 
 // Look up a product's GID by handle (used when the CSV contains a handle instead of a GID).
 async function resolveProductGid(admin, handle) {
