@@ -9,19 +9,24 @@ const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 const CACHE_TTL_AFTER_UPGRADE = 60 * 60 * 1000; // 60 minutes (confirmed plan state)
 
 // ── Real charges vs test charges ────────────────────────────────────────────
-// Charges are REAL. Nothing infers test mode from NODE_ENV or from the store
-// being a Partner development store — those inferences silently put live,
-// paying merchants on test charges, which means Shopify never bills them and
-// the app gives Growth away for free.
+// Charges on a real merchant's store are REAL. Nothing infers test mode from
+// NODE_ENV, from a hostname, or from anything else that can be true of a live
+// store — such inferences silently put paying merchants on test charges, which
+// means Shopify never bills them and the app gives Growth away for free.
 //
-// The one and only way to get a test charge is to set SHOPIFY_BILLING_TEST=true
-// in the environment. Never set it in production.
+// There are exactly two ways to get a test charge:
 //
-// Caveat when testing: Shopify will not accept a real charge on a development
-// store — no payment method can exist there, so appSubscriptionCreate fails
-// with "The shop cannot accept the provided charge". To walk the upgrade flow
-// on a dev store, set SHOPIFY_BILLING_TEST=true locally (see app.billing.jsx,
-// which turns that rejection into an explanatory message).
+//   1. The store is a Partner development store. Shopify will not process money
+//      on one: no payment method can exist there, so a REAL charge renders the
+//      approval screen with Approve permanently greyed out (or is rejected
+//      outright with "The shop cannot accept the provided charge"). A test
+//      charge is the only kind that can be approved there, and it costs nobody
+//      anything — a development store can never be a paying customer. This is
+//      Shopify's own recommended pattern for testing billing.
+//   2. SHOPIFY_BILLING_TEST=true is set in the environment. That is a manual
+//      override for a live store and must never be set in production.
+//
+// Nothing else opts a store into test charges.
 // eslint-disable-next-line no-undef
 export const BILLING_IS_TEST = process.env.SHOPIFY_BILLING_TEST === "true";
 
@@ -67,6 +72,19 @@ export async function getShopBillingContext(admin, shop) {
 }
 
 export async function isDevelopmentStore(admin, shop) {
+  return (await getShopBillingContext(admin, shop)).isDevelopmentStore;
+}
+
+// The value to pass as `test` when CREATING a subscription for this shop.
+// True only for a development store (which Shopify will not let anyone approve
+// a real charge on) or when the operator has set SHOPIFY_BILLING_TEST=true.
+//
+// Note the failure direction: if the shop lookup errors, getShopBillingContext
+// falls back to isDevelopmentStore=false, so an unknown store gets a REAL
+// charge. That is the safe way round — the worst case is an approval screen the
+// merchant can't complete, never a live merchant silently billed nothing.
+export async function resolveBillingTest(admin, shop) {
+  if (BILLING_IS_TEST) return true;
   return (await getShopBillingContext(admin, shop)).isDevelopmentStore;
 }
 
@@ -128,7 +146,11 @@ export async function writeStoredPlan(shop, plan, extra = {}) {
     await connection;
     await ShopPlan.findByIdAndUpdate(
       shop,
-      { plan, updatedAt: new Date(), test: BILLING_IS_TEST, ...extra },
+      // `test` is written only when a caller actually knows it (the upgrade
+      // confirmation does; the subscriptions_update webhook does not). Writing
+      // a guess on every update would flip a development store's test charge
+      // back to test:false the first time a webhook landed.
+      { plan, updatedAt: new Date(), ...extra },
       { upsert: true, setDefaultsOnInsert: true },
     );
     lastPersisted.set(shop, plan);
@@ -270,7 +292,11 @@ export async function getTrialState(admin) {
 // hence the retry loop. Budget ~5s: activation is usually sub-second, but it is
 // not unusual for it to take a few, and giving up too early is what makes a
 // merchant land back in the app on Free right after paying.
-export async function confirmActivePlan(billing, shop, { attempts = 5, delayMs = 1000 } = {}) {
+export async function confirmActivePlan(
+  billing,
+  shop,
+  { attempts = 5, delayMs = 1000, isTest = BILLING_IS_TEST } = {},
+) {
   let checkFailed = false;
 
   for (let attempt = 0; attempt < attempts; attempt++) {
@@ -280,7 +306,9 @@ export async function confirmActivePlan(billing, shop, { attempts = 5, delayMs =
         isTest: CHECK_INCLUDES_TEST,
       });
       if (hasActivePayment) {
-        setCachedPlan(shop, PLANS.GROWTH);
+        // Record how the subscription was created, so a development store's
+        // test charge is never counted as revenue when auditing ShopPlan.
+        setCachedPlan(shop, PLANS.GROWTH, { test: isTest });
         return { plan: PLANS.GROWTH, confirmed: true };
       }
     } catch (e) {

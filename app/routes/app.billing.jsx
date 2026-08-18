@@ -13,6 +13,7 @@ import {
   getTrialState,
   invalidatePlanCache,
   isDevelopmentStore,
+  resolveBillingTest,
   setCachedPlan,
 } from "../utils/billing.server.js";
 import { PLANS, PLAN_FEATURES, PLAN_PRICING, TRIAL_DAYS } from "../utils/plans.js";
@@ -26,8 +27,15 @@ export const loader = async ({ request }) => {
     getTrialState(admin),
     getShopBillingContext(admin, session.shop),
   ]);
-  // Charges are real unless SHOPIFY_BILLING_TEST=true is set explicitly.
-  const isTest = BILLING_IS_TEST;
+  // Real charge on a real store. A Partner development store gets a test
+  // charge, because Shopify greys out Approve on a real one there — see
+  // resolveBillingTest. Kept identical to what the upgrade action passes to
+  // appSubscriptionCreate so the page never describes a different charge from
+  // the one the merchant is actually sent to approve.
+  const isTest = BILLING_IS_TEST || shopContext.isDevelopmentStore;
+  // True only for the manual env override, which is the case worth warning
+  // about: it puts a *live* store on a charge that collects no money.
+  const testChargeForced = BILLING_IS_TEST && !shopContext.isDevelopmentStore;
 
   // The trial end date exists only once a subscription does. Nothing here
   // projects a date for a trial that hasn't started: the merchant starts the
@@ -36,11 +44,7 @@ export const loader = async ({ request }) => {
   // already running", which is not what happened. Formatted in the shop's own
   // timezone so it matches the date Shopify prints on the approval screen.
   const trialEndsOn = formatBillingDate(trial.trialEndsAt, shopContext.timeZone);
-  // A development store can't hold a payment method, so Shopify renders the
-  // approval screen (trial dates and all) with Approve permanently greyed out.
-  // Worth saying before the merchant clicks, not only if the charge is rejected.
-  const devStoreBlocksRealCharge = !isTest && shopContext.isDevelopmentStore;
-  const dates = { trialEndsOn, devStoreBlocksRealCharge };
+  const dates = { trialEndsOn, isDevStore: shopContext.isDevelopmentStore, testChargeForced };
 
   // ── Upgrade return ──────────────────────────────────────────────────────────
   // Shopify appends ?charge_id=... after the merchant approves the charge, but
@@ -48,7 +52,7 @@ export const loader = async ({ request }) => {
   // active before granting Growth.
   if (url.searchParams.has("charge_id")) {
     invalidatePlanCache(session.shop);
-    const { plan, confirmed } = await confirmActivePlan(billing, session.shop);
+    const { plan, confirmed } = await confirmActivePlan(billing, session.shop, { isTest });
     syncShopPlan(admin, session.shop, plan, true).catch(() => { });
     // The trial read at the top of this loader ran before the subscription
     // flipped to ACTIVE, so activeSubscriptions was still empty and there was
@@ -100,8 +104,11 @@ async function explainChargeError(raw, admin, shop, isTest) {
   const text = String(raw ?? "");
 
   if (/cannot accept the provided charge/i.test(text)) {
+    // Should no longer be reachable on a development store — those now get a
+    // test charge, which Shopify does accept. Kept in case the shop lookup
+    // failed and the store was therefore treated as live.
     if (!isTest && (await isDevelopmentStore(admin, shop))) {
-      return "This is a Shopify development store, and development stores can't be billed real money — Shopify rejects the charge before the approval screen. Install the app on a live store to take a real payment, or set SHOPIFY_BILLING_TEST=true in the environment to walk through the flow here with a test charge.";
+      return "Shopify rejected the charge because this is a development store, which can't hold a payment method. Reload and try again — the app bills development stores with a test charge, which Shopify does accept.";
     }
     return "Shopify won't accept a charge for this store right now. Check that the store has a valid payment method and an active Shopify plan, then try again.";
   }
@@ -140,8 +147,10 @@ export const action = async ({ request }) => {
     const { hasUsedTrial } = await getTrialState(admin);
     const trialDays = hasUsedTrial ? 0 : TRIAL_DAYS;
 
-    // Real money unless the operator has explicitly opted into test charges.
-    const isTest = BILLING_IS_TEST;
+    // Real money on a real store. Only a Partner development store (where
+    // Shopify refuses to process money at all, and would render Approve greyed
+    // out) or the explicit SHOPIFY_BILLING_TEST override gets a test charge.
+    const isTest = await resolveBillingTest(admin, session.shop);
 
     try {
       const response = await admin.graphql(
@@ -242,9 +251,9 @@ export default function BillingPage() {
     plan,
     trial,
     trialDays,
-    isTest,
     trialEndsOn,
-    devStoreBlocksRealCharge,
+    isDevStore,
+    testChargeForced,
     justActivated,
     upgradeNotConfirmed,
     pendingConfirmation,
@@ -356,10 +365,10 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Only ever shown when SHOPIFY_BILLING_TEST=true is set deliberately.
-          Styled as a warning, not a notice: seeing this on a live store means
-          real merchants are approving charges that will never be billed. */}
-      {isTest && (
+      {/* SHOPIFY_BILLING_TEST=true on a store that is NOT a development store.
+          Styled as a warning, not a notice: this means real merchants are
+          approving charges that will never be billed. */}
+      {testChargeForced && (
         <div style={styles.warningBanner}>
           <strong>Test charges are enabled</strong> (SHOPIFY_BILLING_TEST=true).
           Shopify shows a real approval screen but no money is collected. Unset
@@ -368,13 +377,14 @@ export default function BillingPage() {
       )}
 
       {/* Only ever true on a Partner development store, so no live merchant
-          sees this. It explains the one thing the approval screen itself does
-          not: the trial and dates render correctly, but Approve stays greyed
-          out because the store can hold no payment method. */}
-      {devStoreBlocksRealCharge && !isGrowth && (
-        <div style={styles.warningBanner}>
-          <strong>Development store — Approve will be greyed out.</strong>{" "}
-          {`The charge is a real one, so Shopify shows the ${trialDays}-day trial and its end date but will not let you approve it: a development store can't have a payment method on file. This is Shopify's rule, not a problem with the app — on a live store with a payment method the Approve button is enabled. To walk through the flow here, set SHOPIFY_BILLING_TEST=true and reload.`}
+          sees this. Shopify will not process money on a development store, so
+          the charge is a test one — which is precisely what keeps Approve
+          clickable there instead of greyed out. Everything else about the flow
+          (trial, end date, plan features) behaves exactly as it does live. */}
+      {isDevStore && !isGrowth && (
+        <div style={styles.noticeBanner}>
+          <strong>Development store — this is a test charge.</strong>{" "}
+          {`Shopify can't take real money on a development store, so the approval screen says "You will not be billed for this test charge". Approve works normally, the ${trialDays}-day trial and its end date are real, and nothing is charged. On a live store the same flow takes a real payment.`}
         </div>
       )}
 
